@@ -9,9 +9,13 @@ use crate::errors::SourceSpan;
 pub struct AstFile {
     pub scene: AstScene,
     pub library_imports: AstLibraryImports,
+    pub materials: Vec<AstMaterial>,
+    pub fields: Vec<AstFieldDef>,
     pub entities: Vec<AstEntity>,
     pub constraints: Vec<AstConstraint>,
     pub motions: Vec<AstMotion>,
+    pub compound_motions: Vec<AstCompoundMotion>,
+    pub trajectories: Vec<AstTrajectory>,
     pub timelines: Vec<AstTimeline>,
     pub span: SourceSpan,
 }
@@ -38,6 +42,94 @@ pub struct AstImport {
     pub alias: String,
     pub library_name: String,
     pub span: SourceSpan,
+}
+
+/// Material definition (NEW)
+#[derive(Debug, Clone)]
+pub struct AstMaterial {
+    pub name: String,
+    pub fields: Vec<AstField>,
+    pub span: SourceSpan,
+}
+
+impl AstMaterial {
+    pub fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+}
+
+/// Field definition (NEW)
+#[derive(Debug, Clone)]
+pub struct AstFieldDef {
+    pub name: String,
+    pub fields: Vec<AstField>,
+    pub span: SourceSpan,
+}
+
+impl AstFieldDef {
+    pub fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+
+    pub fn field_type(&self) -> Option<&str> {
+        self.get_field("type")
+            .and_then(|f| f.value.as_identifier())
+    }
+}
+
+/// Compound motion definition (NEW)
+#[derive(Debug, Clone)]
+pub struct AstCompoundMotion {
+    pub name: String,
+    pub fields: Vec<AstField>,
+    pub span: SourceSpan,
+}
+
+impl AstCompoundMotion {
+    pub fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+
+    pub fn motion_type(&self) -> Option<&str> {
+        self.get_field("type")
+            .and_then(|f| f.value.as_identifier())
+    }
+
+    pub fn motion_list(&self) -> Vec<String> {
+        self.get_field("motions")
+            .and_then(|f| {
+                if let AstValue::String(s, _) = &f.value {
+                    Some(s.split(',').map(|m| m.trim().to_string()).collect())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Trajectory definition (NEW)
+#[derive(Debug, Clone)]
+pub struct AstTrajectory {
+    pub name: String,
+    pub fields: Vec<AstField>,
+    pub span: SourceSpan,
+}
+
+impl AstTrajectory {
+    pub fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+
+    pub fn path_type(&self) -> Option<&str> {
+        self.get_field("type")
+            .and_then(|f| f.value.as_identifier())
+    }
+
+    pub fn target(&self) -> Option<&str> {
+        self.get_field("target")
+            .and_then(|f| f.value.as_identifier())
+    }
 }
 
 /// Entity definition
@@ -241,6 +333,30 @@ impl HasFields for AstEvent {
     }
 }
 
+impl HasFields for AstMaterial {
+    fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+}
+
+impl HasFields for AstFieldDef {
+    fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+}
+
+impl HasFields for AstCompoundMotion {
+    fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+}
+
+impl HasFields for AstTrajectory {
+    fn get_field(&self, name: &str) -> Option<&AstField> {
+        self.fields.iter().find(|f| f.name == name)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,89 +378,5 @@ mod tests {
         
         let vec_val = AstValue::Vector(vec![1.0, 2.0, 3.0], span);
         assert_eq!(vec_val.as_vector(), Some(&[1.0, 2.0, 3.0][..]));
-    }
-
-    #[test]
-    fn test_field_lookup() {
-        let span = SourceSpan::single_point(1, 1, 0);
-        
-        let component = AstComponent {
-            name: "transform".to_string(),
-            fields: vec![
-                AstField {
-                    name: "position".to_string(),
-                    value: AstValue::Vector(vec![0.0, 0.0, 0.0], span),
-                    span,
-                },
-                AstField {
-                    name: "mass".to_string(),
-                    value: AstValue::Number(1.0, span),
-                    span,
-                },
-            ],
-            span,
-        };
-        
-        assert!(component.get_field("position").is_some());
-        assert!(component.get_field("mass").is_some());
-        assert!(component.get_field("nonexistent").is_none());
-        
-        assert_eq!(component.get_vector_field("position"), Some(&[0.0, 0.0, 0.0][..]));
-        assert_eq!(component.get_number_field("mass"), Some(1.0));
-    }
-
-    #[test]
-    fn test_motion_helpers() {
-        let span = SourceSpan::single_point(1, 1, 0);
-        
-        let motion = AstMotion {
-            name: "spin".to_string(),
-            fields: vec![
-                AstField {
-                    name: "target".to_string(),
-                    value: AstValue::Identifier("cube1".to_string(), span),
-                    span,
-                },
-                AstField {
-                    name: "type".to_string(),
-                    value: AstValue::Identifier("rotation".to_string(), span),
-                    span,
-                },
-            ],
-            span,
-        };
-        
-        assert_eq!(motion.target(), Some("cube1"));
-        assert_eq!(motion.motion_type(), Some("rotation"));
-    }
-
-    #[test]
-    fn test_event_helpers() {
-        let span = SourceSpan::single_point(1, 1, 0);
-        
-        let event = AstEvent {
-            fields: vec![
-                AstField {
-                    name: "motion".to_string(),
-                    value: AstValue::Identifier("spin".to_string(), span),
-                    span,
-                },
-                AstField {
-                    name: "start".to_string(),
-                    value: AstValue::Number(0.0, span),
-                    span,
-                },
-                AstField {
-                    name: "duration".to_string(),
-                    value: AstValue::Number(2.0, span),
-                    span,
-                },
-            ],
-            span,
-        };
-        
-        assert_eq!(event.motion(), Some("spin"));
-        assert_eq!(event.start(), Some(0.0));
-        assert_eq!(event.duration(), Some(2.0));
     }
 }

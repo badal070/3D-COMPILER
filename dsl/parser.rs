@@ -25,12 +25,32 @@ impl Parser {
     pub fn parse(&mut self) -> DslResult<AstFile> {
         let start_span = self.current_span();
 
-        // Mandatory order: scene, library_imports, entities, constraints, motions, timelines
+        // Mandatory order: scene, library_imports, materials (opt), fields (opt), 
+        // entities, constraints, motions, compound_motions (opt), trajectories (opt), timelines
         let scene = self.parse_scene()?;
         let library_imports = self.parse_library_imports()?;
+
+        // New sections (optional)
+        let materials = if self.check(TokenKind::Materials) {
+            self.parse_materials()?
+        } else {
+            Vec::new()
+        };
+
+        let fields = if self.check(TokenKind::Fields) {
+            self.parse_fields_section()?
+        } else {
+            Vec::new()
+        };
+
         let entities = self.parse_entities()?;
         let constraints = self.parse_constraints()?;
         let motions = self.parse_motions()?;
+
+        // New compound motions and trajectories
+        let compound_motions = self.parse_compound_motions()?;
+        let trajectories = self.parse_trajectories()?;
+
         let timelines = self.parse_timelines()?;
 
         self.expect(TokenKind::Eof)?;
@@ -48,9 +68,13 @@ impl Parser {
         Ok(AstFile {
             scene,
             library_imports,
+            materials,
+            fields,
             entities,
             constraints,
             motions,
+            compound_motions,
+            trajectories,
             timelines,
             span,
         })
@@ -146,6 +170,60 @@ impl Parser {
         let span = self.span_between(start_span, end_span);
 
         Ok(AstLibraryImports { imports, span })
+    }
+
+    fn parse_materials(&mut self) -> DslResult<Vec<AstMaterial>> {
+        self.expect(TokenKind::Materials)?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut materials = Vec::new();
+
+        while self.check(TokenKind::Material) {
+            materials.push(self.parse_material()?);
+        }
+
+        self.expect(TokenKind::RightBrace)?;
+        Ok(materials)
+    }
+
+    fn parse_material(&mut self) -> DslResult<AstMaterial> {
+        let start_span = self.expect(TokenKind::Material)?.span;
+        let name = self.expect_identifier()?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let fields = self.parse_fields()?;
+
+        let end_span = self.expect(TokenKind::RightBrace)?.span;
+        let span = self.span_between(start_span, end_span);
+
+        Ok(AstMaterial { name, fields, span })
+    }
+
+    fn parse_fields_section(&mut self) -> DslResult<Vec<AstFieldDef>> {
+        self.expect(TokenKind::Fields)?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut fields = Vec::new();
+
+        while self.check(TokenKind::Field) {
+            fields.push(self.parse_field_def()?);
+        }
+
+        self.expect(TokenKind::RightBrace)?;
+        Ok(fields)
+    }
+
+    fn parse_field_def(&mut self) -> DslResult<AstFieldDef> {
+        let start_span = self.expect(TokenKind::Field)?.span;
+        let name = self.expect_identifier()?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let fields = self.parse_fields()?;
+
+        let end_span = self.expect(TokenKind::RightBrace)?.span;
+        let span = self.span_between(start_span, end_span);
+
+        Ok(AstFieldDef { name, fields, span })
     }
 
     fn parse_entities(&mut self) -> DslResult<Vec<AstEntity>> {
@@ -318,6 +396,52 @@ impl Parser {
         let span = self.span_between(start_span, end_span);
 
         Ok(AstMotion { name, fields, span })
+    }
+
+    fn parse_compound_motions(&mut self) -> DslResult<Vec<AstCompoundMotion>> {
+        let mut compound_motions = Vec::new();
+
+        while self.check(TokenKind::CompoundMotion) {
+            compound_motions.push(self.parse_compound_motion()?);
+        }
+
+        Ok(compound_motions)
+    }
+
+    fn parse_compound_motion(&mut self) -> DslResult<AstCompoundMotion> {
+        let start_span = self.expect(TokenKind::CompoundMotion)?.span;
+        let name = self.expect_identifier()?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let fields = self.parse_fields()?;
+
+        let end_span = self.expect(TokenKind::RightBrace)?.span;
+        let span = self.span_between(start_span, end_span);
+
+        Ok(AstCompoundMotion { name, fields, span })
+    }
+
+    fn parse_trajectories(&mut self) -> DslResult<Vec<AstTrajectory>> {
+        let mut trajectories = Vec::new();
+
+        while self.check(TokenKind::Trajectory) {
+            trajectories.push(self.parse_trajectory()?);
+        }
+
+        Ok(trajectories)
+    }
+
+    fn parse_trajectory(&mut self) -> DslResult<AstTrajectory> {
+        let start_span = self.expect(TokenKind::Trajectory)?.span;
+        let name = self.expect_identifier()?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let fields = self.parse_fields()?;
+
+        let end_span = self.expect(TokenKind::RightBrace)?.span;
+        let span = self.span_between(start_span, end_span);
+
+        Ok(AstTrajectory { name, fields, span })
     }
 
     fn parse_timelines(&mut self) -> DslResult<Vec<AstTimeline>> {

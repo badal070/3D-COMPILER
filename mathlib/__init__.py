@@ -11,9 +11,15 @@ Core Principles:
 - Symbolic + Numeric separation
 - Fail loudly (raise errors, don't "fix" input)
 - Human-readable math (education > performance)
+
+Extended Features (v2.0):
+- Hierarchical motion graphs for complex animations
+- Physics simulation for realistic motion
+- Chemistry module for molecular visualization
+- Mathematical visualization tools
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 # Core primitives
 from mathlib.core.scalar import Scalar
@@ -46,6 +52,45 @@ from mathlib.kinematics.frames import Frame
 from mathlib.kinematics.joints import Joint, RevoluteJoint, PrismaticJoint
 from mathlib.kinematics.chains import KinematicChain
 from mathlib.kinematics.constraints import Constraint
+
+# Animation (NEW)
+from mathlib.animation.motion_graph import (
+    MotionNode,
+    MotionGraph,
+    MotionType,
+    EasingFunction
+)
+
+# Physics (NEW)
+from mathlib.physics.simulation import (
+    PhysicsState,
+    PhysicsSimulator,
+    Force,
+    SpringForce,
+    DampingForce,
+    Collision,
+    create_pendulum_simulation
+)
+
+# Chemistry (NEW)
+from mathlib.chemistry.molecules import (
+    Atom,
+    Bond,
+    BondType,
+    Molecule,
+    MolecularGeometry,
+    Reaction
+)
+
+# Visualization (NEW)
+from mathlib.visualization.surfaces import (
+    ParametricSurface,
+    CommonSurfaces,
+    VectorField,
+    CommonVectorFields,
+    ImplicitSurface,
+    FunctionGraph
+)
 
 # Calculus
 from mathlib.calculus.limits import limit
@@ -93,6 +138,20 @@ __all__ = [
     'Frame', 'Joint', 'RevoluteJoint', 'PrismaticJoint',
     'KinematicChain', 'Constraint',
     
+    # Animation
+    'MotionNode', 'MotionGraph', 'MotionType', 'EasingFunction',
+    
+    # Physics
+    'PhysicsState', 'PhysicsSimulator', 'Force', 'SpringForce',
+    'DampingForce', 'Collision', 'create_pendulum_simulation',
+    
+    # Chemistry
+    'Atom', 'Bond', 'BondType', 'Molecule', 'MolecularGeometry', 'Reaction',
+    
+    # Visualization
+    'ParametricSurface', 'CommonSurfaces', 'VectorField', 'CommonVectorFields',
+    'ImplicitSurface', 'FunctionGraph',
+    
     # Calculus
     'limit', 'derivative', 'gradient', 'integrate',
     'Curve', 'ParametricCurve',
@@ -107,3 +166,48 @@ __all__ = [
     'MathLibError', 'DimensionError', 'UnitError', 'AngleUnitError',
     'ValidationError', 'DomainError', 'InvariantError',
 ]
+# Physics 
+
+from mathlib.physics import ( 
+
+    RigidBody, ForceField, Spring, Pendulum, 
+
+    WaveMotion, CollisionConstraint 
+
+) 
+
+ 
+
+# Chemistry 
+
+from mathlib.chemistry import ( 
+
+    Atom, Bond, BondAngle, MolecularVibration, 
+
+    CoulombicField, LennardJonesPotential, ElectronOrbital 
+
+) 
+
+ 
+
+# Robotics 
+
+from mathlib.robotics import ( 
+
+    JointLimit, RevoluteJointKinematics, PrismaticJointKinematics, 
+
+    RobotLink, SerialManipulator, JointTrajectory, WorkspacePath 
+
+) 
+
+ 
+
+# Compound Motions 
+
+from mathlib.motions import ( 
+
+    SequentialMotion, ParallelMotion, OscillatoryMotion, 
+
+    DampedMotion, PeriodicMotion, EasedMotion, SplinePath 
+
+) 

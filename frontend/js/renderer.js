@@ -379,11 +379,18 @@ export class ThreeRenderer {
         const center = box.getCenter(new THREE.Vector3());
         
         const fov = this.camera.fov * (Math.PI / 180);
-        let cameraZ = Math.isNaN(size) || size === 0 ? 20 : Math.abs(size / (2 * Math.tan(fov / 2)));
+        
+        let cameraZ;
+        if (!Number.isFinite(size) || size === 0) {
+            cameraZ = 20;
+        } else {
+            cameraZ = Math.abs(size / (2 * Math.tan(fov / 2)));
+        }
         
         this.camera.position.z = cameraZ + (size * 0.5);
         this.camera.lookAt(center || new THREE.Vector3(0, 0, 0));
     }
+
     
     resetCamera() {
         this.camera.position.set(0, 10, 15);

@@ -70,6 +70,10 @@ pub mod validator {
     pub mod references;
     pub mod units;
     pub mod library;
+    pub mod material;
+    pub mod field;
+    pub mod compound_motion;
+    pub mod trajectory;
 }
 
 use crate::ast::AstFile;
@@ -82,6 +86,10 @@ use crate::validator::references::ReferenceValidator;
 use crate::validator::schema::SchemaValidator;
 use crate::validator::syntax::SyntaxValidator;
 use crate::validator::units::{UnitSystem, UnitValidator};
+use crate::validator::material::MaterialValidator;
+use crate::validator::field::FieldValidator;
+use crate::validator::compound_motion::CompoundMotionValidator;
+use crate::validator::trajectory::TrajectoryValidator;
 use std::path::PathBuf;
 
 /// Main compiler interface
@@ -156,6 +164,19 @@ impl Compiler {
 
         // Pass 5: Library compatibility
         LibraryValidator::new(file.clone()).validate(ast)?;
+
+        // Pass 6: Material validation (NEW)
+        let domain = "physics"; // This should be extracted from scene or config
+        MaterialValidator::new(file.clone(), domain.to_string()).validate(ast)?;
+
+        // Pass 7: Field validation (NEW)
+        FieldValidator::new(file.clone()).validate(ast)?;
+
+        // Pass 8: Compound motion validation (NEW)
+        CompoundMotionValidator::new(file.clone()).validate(ast)?;
+
+        // Pass 9: Trajectory validation (NEW)
+        TrajectoryValidator::new(file.clone()).validate(ast)?;
 
         Ok(())
     }

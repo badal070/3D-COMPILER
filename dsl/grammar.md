@@ -1,4 +1,4 @@
-# Scene Description Language (SDL) Specification v1.0
+# Scene Description Language (SDL) Specification v2.0
 
 ## 0. Language Classification
 
@@ -6,6 +6,7 @@
 - Strict, declarative scene description language
 - Serialization format for intermediate representation
 - Deterministic, boring, auditable
+- **NEW**: Support for nested complex motions and compound animations
 
 **IS NOT:**
 - Programming language
@@ -23,6 +24,8 @@
 4. Complete static validation
 5. Forward-compatible versioning
 6. LLM-safe but LLM-irrelevant
+7. **NEW**: Composable motion hierarchies
+8. **NEW**: Domain-specific physics/chemistry/robotics primitives
 
 ## 2. File Structure
 
@@ -30,9 +33,13 @@
 ```
 scene
 library_imports
+materials            # NEW: Material definitions
+fields               # NEW: Force fields, potentials
 entities
 constraints
 motions
+compound_motions     # NEW: Nested motion compositions
+trajectories         # NEW: Path-based motions
 timelines
 ```
 
@@ -44,16 +51,32 @@ timelines
 ## 3. Formal Grammar (EBNF)
 
 ```ebnf
-file          ::= scene library_imports entity* constraint* motion* timeline*
+file          ::= scene library_imports materials? fields? entity* constraint* 
+                  motion* compound_motion* trajectory* timeline*
 
 scene         ::= "scene" "{" scene_fields "}"
 scene_fields  ::= "name:" STRING 
                   "version:" INTEGER
                   "ir_version:" STRING
                   "unit_system:" STRING
+                  "domain:" domain_type?
+
+domain_type   ::= "physics" | "chemistry" | "mathematics" | "robotics" | "general"
 
 library_imports ::= "library_imports" "{" import_pair* "}"
 import_pair     ::= IDENT ":" STRING
+
+# NEW: Materials section
+materials     ::= "materials" "{" material* "}"
+material      ::= "material" IDENT "{" material_body "}"
+material_body ::= field*
+
+# NEW: Fields section (force fields, potentials)
+fields        ::= "fields" "{" field* "}"
+field         ::= "field" IDENT "{" field_body "}"
+field_body    ::= "type:" field_type field*
+field_type    ::= "gravitational" | "electromagnetic" | "coulombic" | 
+                  "lennard_jones" | "harmonic" | "custom"
 
 entity        ::= "entity" IDENT "{" entity_body "}"
 entity_body   ::= "kind:" IDENT "components" "{" component* "}"
@@ -67,12 +90,28 @@ constraint_body ::= "type:" IDENT field*
 motion        ::= "motion" IDENT "{" motion_body "}"
 motion_body   ::= "target:" IDENT "type:" IDENT field*
 
+# NEW: Compound motions (nested compositions)
+compound_motion ::= "compound_motion" IDENT "{" compound_body "}"
+compound_body   ::= "type:" compound_type "motions:" motion_list field*
+compound_type   ::= "sequential" | "parallel" | "conditional" | 
+                    "oscillatory" | "periodic" | "damped"
+motion_list     ::= "[" IDENT ("," IDENT)* "]"
+
+# NEW: Trajectories (path-based motion)
+trajectory    ::= "trajectory" IDENT "{" trajectory_body "}"
+trajectory_body ::= "target:" IDENT "path_type:" path_type field*
+path_type     ::= "linear" | "circular" | "elliptical" | "helix" | 
+                  "bezier" | "spline" | "parametric" | "orbital"
+
 timeline      ::= "timeline" IDENT "{" event* "}"
 event         ::= "event" "{" event_fields "}"
-event_fields  ::= "motion:" IDENT "start:" NUMBER "duration:" NUMBER
+event_fields  ::= event_target "start:" NUMBER "duration:" NUMBER field*
+event_target  ::= "motion:" IDENT | "compound_motion:" IDENT | "trajectory:" IDENT
 
-value         ::= NUMBER | STRING | IDENT | vector
-vector        ::= "[" NUMBER "," NUMBER "," NUMBER "]"
+value         ::= NUMBER | STRING | IDENT | vector | matrix | quaternion
+vector        ::= "[" NUMBER ("," NUMBER)* "]"
+matrix        ::= "[[" NUMBER ("," NUMBER)* ("],[" NUMBER ("," NUMBER)*)* "]]"
+quaternion    ::= "quat(" NUMBER "," NUMBER "," NUMBER "," NUMBER ")"
 
 NUMBER        ::= [0-9]+ ("." [0-9]+)? ([eE] [+-]? [0-9]+)?
 STRING        ::= '"' [^"]* '"'
@@ -81,7 +120,7 @@ IDENT         ::= [a-zA-Z_][a-zA-Z0-9_]*
 
 **Forbidden:**
 - Expressions
-- Operators
+- Operators (except in quaternions)
 - Conditionals
 - Loops
 
@@ -91,6 +130,7 @@ IDENT         ::= [a-zA-Z_][a-zA-Z0-9_]*
 - `version`: DSL schema version (integer)
 - `ir_version`: IR compatibility string (semantic versioning)
 - `unit_system`: Validated against known systems (SI, Imperial)
+- `domain`: Optional domain specification for specialized validation
 - Mismatch → Hard error, no migration
 
 ### 4.2 Library Imports
@@ -98,8 +138,36 @@ IDENT         ::= [a-zA-Z_][a-zA-Z0-9_]*
 - Libraries are read-only
 - Versioned imports mandatory
 - No implicit globals
+- **NEW**: Domain-specific libraries (physics_advanced, chemistry_molecular, robotics_kinematics)
 
-### 4.3 Entities
+### 4.3 Materials (NEW)
+- Material properties for physics/chemistry simulations
+- Required fields depend on domain:
+  - Physics: density, elasticity, friction, restitution
+  - Chemistry: atomic_number, electronegativity, bond_order, charge
+  - Robotics: mass, inertia_tensor, friction_coefficient
+
+**Material Validation:**
+- `density`: positive number
+- `charge`: any number (positive, negative, or zero)
+- `electronegativity`: 0.0-4.0 range
+- `bond_order`: positive integer
+
+### 4.4 Fields (NEW)
+- Force field and potential definitions
+- Field types:
+  - `gravitational`: requires strength, direction
+  - `electromagnetic`: requires field_strength, direction
+  - `coulombic`: requires permittivity
+  - `lennard_jones`: requires epsilon, sigma
+  - `harmonic`: requires spring_constant, equilibrium_position
+
+**Field Validation:**
+- All strength parameters must be finite
+- Direction vectors must be normalized (if present)
+- Range parameters must be positive
+
+### 4.5 Entities
 - `kind` field required
 - `components` block required
 - Each component appears at most once
@@ -107,33 +175,86 @@ IDENT         ::= [a-zA-Z_][a-zA-Z0-9_]*
 
 **Component Validation:**
 - `transform.position`: 3D vector
-- `transform.rotation`: 3D vector (radians)
+- `transform.rotation`: 3D vector (radians) OR quaternion
 - `transform.scale`: 3D vector
 - `physical.mass`: positive number
+- `physical.inertia_tensor`: 3x3 matrix (NEW)
+- `physical.center_of_mass`: 3D vector (NEW)
 - `geometry.primitive`: valid identifier
+- `molecular.atoms`: list of atom identifiers (NEW)
+- `molecular.bonds`: list of bond specifications (NEW)
+- `kinematic.joint_type`: valid joint type (NEW)
+- `kinematic.dof`: degrees of freedom (NEW)
 
-### 4.4 Constraints
+### 4.6 Constraints
 - Do not mutate entities
 - References only
 - `type` must exist in library
 - Referenced entities must exist
 - Parameters validated by constraint schema
+- **NEW**: Support for molecular bonds, kinematic chains, collision constraints
 
-### 4.5 Motions
-- No timing information
-- No easing curves
+### 4.7 Motions
+- No timing information (timing is in timelines)
+- No easing curves (easing is in compound_motions)
 - Pure rate-based definition
-- `axis`: normalized vector or rejected
+- `axis`: normalized vector or standard axis
 - `speed`: finite number
 - `target`: must exist
+- **NEW**: Support for complex motion types:
+  - `vibration`: amplitude, frequency
+  - `wave_propagation`: wavelength, phase_velocity
+  - `orbital`: semi_major_axis, eccentricity, inclination
+  - `molecular_vibration`: mode, frequency
+  - `joint_rotation`: joint_id, angle_limits
 
-### 4.6 Timelines
+### 4.8 Compound Motions (NEW)
+- Compose multiple motions hierarchically
+- Types:
+  - `sequential`: execute motions in order
+  - `parallel`: execute motions simultaneously
+  - `conditional`: motion based on state (validated at compile time)
+  - `oscillatory`: harmonic oscillation wrapper
+  - `periodic`: repeating motion pattern
+  - `damped`: exponentially damped motion
+- All referenced motions must exist
+- No circular dependencies in motion composition
+- Timing resolved at runtime from timeline
+
+**Compound Motion Validation:**
+- Motion list cannot be empty
+- All motion references must be valid
+- For oscillatory: requires frequency, amplitude
+- For damped: requires damping_coefficient
+- For periodic: requires period
+
+### 4.9 Trajectories (NEW)
+- Path-based motion definitions
+- Path types:
+  - `linear`: start_point, end_point
+  - `circular`: center, radius, normal, start_angle
+  - `elliptical`: center, semi_major, semi_minor, normal
+  - `helix`: axis, radius, pitch, turns
+  - `bezier`: control_points (list of vectors)
+  - `spline`: control_points, tension, continuity
+  - `parametric`: uses library function
+  - `orbital`: focus, semi_major_axis, eccentricity
+
+**Trajectory Validation:**
+- All geometric parameters must be finite
+- Control points must form valid path
+- For orbital: eccentricity in [0, 1) for ellipses
+- Normal vectors must be normalized
+
+### 4.10 Timelines
 - Time in seconds (float)
-- Events cannot overlap for same motion
+- Events cannot overlap for same motion/trajectory
 - Multiple timelines allowed
 - `duration` > 0
 - `start` ≥ 0
-- Referenced motion must exist
+- Referenced motion/compound_motion/trajectory must exist
+- **NEW**: Support for synchronization markers
+- **NEW**: Support for event dependencies
 
 ## 5. Error Codes
 
@@ -144,42 +265,418 @@ E200-E299: Schema errors
 E300-E399: Reference errors
 E400-E499: Unit validation errors
 E500-E599: Library compatibility errors
+E600-E699: Material validation errors (NEW)
+E700-E799: Field validation errors (NEW)
+E800-E899: Compound motion errors (NEW)
+E900-E999: Trajectory validation errors (NEW)
 ```
 
 **Error Format:**
 ```
-E023: Undefined entity 'gearB'
+E023: Undefined entity 'molecule_1'
  --> scene.dsl:42:12
   |
-42|   driven: gearB
-  |           ^^^^^ entity not found in scope
+42|   target: molecule_1
+  |           ^^^^^^^^^^ entity not found in scope
 ```
 
-## 6. Extensibility
+## 6. Domain-Specific Extensions
+
+### 6.1 Physics Domain
+**Additional Components:**
+- `rigid_body`: mass, inertia_tensor, center_of_mass, angular_velocity
+- `collision`: shape, collision_group, collision_mask
+- `force_actuator`: force_vector, application_point
+
+**Additional Constraints:**
+- `spring_damper`: k, c, rest_length
+- `collision_constraint`: restitution, friction
+- `hinge_with_limits`: min_angle, max_angle
+
+**Additional Motions:**
+- `apply_force`: force_vector, application_point
+- `apply_torque`: torque_vector
+- `wave_motion`: amplitude, frequency, wavelength, phase
+
+### 6.2 Chemistry Domain
+**Additional Components:**
+- `atom`: element, charge, position, hybridization
+- `bond`: atom1, atom2, bond_order, length
+- `electron_cloud`: orbital_type, electron_count
+- `molecular_orbital`: type, energy_level, occupancy
+
+**Additional Constraints:**
+- `bond_angle`: atom1, atom2, atom3, angle
+- `dihedral_angle`: atom1, atom2, atom3, atom4, angle
+- `hydrogen_bond`: donor, acceptor, strength
+
+**Additional Motions:**
+- `molecular_vibration`: mode_type, frequency, amplitude
+- `rotation_around_bond`: bond_id, angular_velocity
+- `electron_transition`: from_orbital, to_orbital, energy
+
+**Additional Fields:**
+- `electrostatic`: coulombic interactions
+- `van_der_waals`: lennard_jones potential
+
+### 6.3 Mathematics Domain
+**Additional Components:**
+- `coordinate_system`: type (cartesian/polar/spherical/cylindrical)
+- `function_graph`: function_type, parameters
+- `vector_field`: field_function, domain
+- `surface`: parametric_function, u_range, v_range
+
+**Additional Motions:**
+- `parametric_motion`: parameter, parameter_rate
+- `transform_morph`: from_matrix, to_matrix, interpolation
+- `curve_trace`: curve_id, parameter_speed
+
+**Additional Trajectories:**
+- `function_path`: function_expression (validated)
+- `polar_path`: r_function, theta_range
+- `parametric_3d`: x_func, y_func, z_func, t_range
+
+### 6.4 Robotics Domain
+**Additional Components:**
+- `joint`: type (revolute/prismatic/spherical/fixed), axis, limits
+- `link`: length, mass, inertia, parent_joint
+- `end_effector`: type, tool_frame
+- `sensor`: type (position/force/torque), noise_model
+
+**Additional Constraints:**
+- `kinematic_chain`: joint_list, base_link, end_link
+- `joint_limit`: min_value, max_value, max_velocity, max_torque
+- `collision_avoidance`: obstacle_group, safety_margin
+
+**Additional Motions:**
+- `joint_trajectory`: joint_id, waypoints, interpolation
+- `inverse_kinematics`: target_pose, end_effector_id
+- `cartesian_motion`: target_position, target_orientation, speed
+
+**Additional Trajectories:**
+- `workspace_path`: waypoints, orientation_interpolation
+- `joint_space_path`: joint_waypoints, velocity_profile
+
+## 7. Extensibility
 
 **Allowed:**
 - New constraint types (via library)
 - New motion types (via library)
-- New components (via library)
+- New component types (via library)
+- New field types (via library)
+- New trajectory types (via library)
+- Domain-specific extensions
 
 **Forbidden:**
 - Control flow constructs
 - Inline math expressions
 - Runtime evaluation hooks
+- Dynamic typing
 
 **Extension Requirements:**
 - Must live in libraries
 - Must be versioned
 - Must be schema-defined
+- Must respect domain constraints
 
-## 7. Version Compatibility
+## 8. Version Compatibility
 
-**DSL Version:** Increments on grammar changes
+**DSL Version:** Increments on grammar changes (now v2.0)
 **IR Version:** Semantic versioning (MAJOR.MINOR.PATCH)
 
 Compiler enforces strict compatibility checking.
 
+**v2.0 Changes:**
+- Added materials section
+- Added fields section
+- Added compound_motions section
+- Added trajectories section
+- Extended motion types for domain-specific animations
+- Added quaternion support
+- Added matrix notation
+- Added domain-specific component types
+- Extended validation rules for physics/chemistry/mathematics/robotics
+
+## 9. Example: Complex Physics Animation
+
+```dsl
+scene {
+  name: "Double Pendulum"
+  version: 2
+  ir_version: "0.2.0"
+  unit_system: "SI"
+  domain: "physics"
+}
+
+library_imports {
+  physics: "physics_advanced"
+  math: "vector_calculus"
+}
+
+fields {
+  field gravity {
+    type: gravitational
+    strength: 9.81
+    direction: [0, -1, 0]
+  }
+}
+
+materials {
+  material steel {
+    density: 7850.0
+    elasticity: 200e9
+    friction: 0.6
+  }
+}
+
+entity pendulum_arm1 {
+  kind: rigid_body
+  components {
+    transform {
+      position: [0, 0, 0]
+      rotation: [0, 0, 0]
+      scale: [0.05, 1.0, 0.05]
+    }
+    physical {
+      mass: 1.0
+      inertia_tensor: [[0.083, 0, 0], [0, 0.083, 0], [0, 0, 0.001]]
+      center_of_mass: [0, -0.5, 0]
+    }
+    material_ref {
+      material: steel
+    }
+  }
+}
+
+entity pendulum_arm2 {
+  kind: rigid_body
+  components {
+    transform {
+      position: [0, -1.0, 0]
+      rotation: [0, 0, 0]
+      scale: [0.05, 1.0, 0.05]
+    }
+    physical {
+      mass: 0.8
+      inertia_tensor: [[0.067, 0, 0], [0, 0.067, 0], [0, 0, 0.001]]
+      center_of_mass: [0, -0.5, 0]
+    }
+  }
+}
+
+constraint joint1 {
+  type: hinge_with_limits
+  parent: world
+  child: pendulum_arm1
+  axis: [0, 0, 1]
+  position: [0, 0, 0]
+  min_angle: -3.14159
+  max_angle: 3.14159
+}
+
+constraint joint2 {
+  type: hinge_with_limits
+  parent: pendulum_arm1
+  child: pendulum_arm2
+  axis: [0, 0, 1]
+  position: [0, -1.0, 0]
+  min_angle: -3.14159
+  max_angle: 3.14159
+}
+
+motion swing1 {
+  target: pendulum_arm1
+  type: apply_torque
+  torque_vector: [0, 0, 0]
+  initial_angle: 1.57
+}
+
+motion swing2 {
+  target: pendulum_arm2
+  type: apply_torque
+  torque_vector: [0, 0, 0]
+  initial_angle: 0.5
+}
+
+compound_motion chaotic_swing {
+  type: parallel
+  motions: [swing1, swing2]
+  damping_coefficient: 0.01
+}
+
+timeline main {
+  event {
+    compound_motion: chaotic_swing
+    start: 0.0
+    duration: 10.0
+  }
+}
+```
+
+## 10. Example: Molecular Chemistry Animation
+
+```dsl
+scene {
+  name: "Water Molecule Vibration"
+  version: 2
+  ir_version: "0.2.0"
+  unit_system: "SI"
+  domain: "chemistry"
+}
+
+library_imports {
+  chemistry: "molecular_dynamics"
+  math: "quantum_mechanics"
+}
+
+fields {
+  field coulomb {
+    type: coulombic
+    permittivity: 8.854e-12
+  }
+  
+  field vdw {
+    type: lennard_jones
+    epsilon: 1.0e-21
+    sigma: 3.0e-10
+  }
+}
+
+materials {
+  material hydrogen {
+    atomic_number: 1
+    electronegativity: 2.20
+    charge: 0.42
+  }
+  
+  material oxygen {
+    atomic_number: 8
+    electronegativity: 3.44
+    charge: -0.84
+  }
+}
+
+entity oxygen_atom {
+  kind: atom
+  components {
+    transform {
+      position: [0, 0, 0]
+      rotation: [0, 0, 0]
+      scale: [1.4e-10, 1.4e-10, 1.4e-10]
+    }
+    atom {
+      element: oxygen
+      hybridization: sp3
+      formal_charge: 0
+    }
+    material_ref {
+      material: oxygen
+    }
+  }
+}
+
+entity hydrogen_atom1 {
+  kind: atom
+  components {
+    transform {
+      position: [9.5e-11, 0, 0]
+      rotation: [0, 0, 0]
+      scale: [5.3e-11, 5.3e-11, 5.3e-11]
+    }
+    atom {
+      element: hydrogen
+      hybridization: s
+      formal_charge: 0
+    }
+    material_ref {
+      material: hydrogen
+    }
+  }
+}
+
+entity hydrogen_atom2 {
+  kind: atom
+  components {
+    transform {
+      position: [-3.1e-11, 9.0e-11, 0]
+      rotation: [0, 0, 0]
+      scale: [5.3e-11, 5.3e-11, 5.3e-11]
+    }
+    atom {
+      element: hydrogen
+      hybridization: s
+      formal_charge: 0
+    }
+  }
+}
+
+constraint oh_bond1 {
+  type: covalent_bond
+  atom1: oxygen_atom
+  atom2: hydrogen_atom1
+  bond_order: 1
+  equilibrium_length: 9.5e-11
+  spring_constant: 5.0e2
+}
+
+constraint oh_bond2 {
+  type: covalent_bond
+  atom1: oxygen_atom
+  atom2: hydrogen_atom2
+  bond_order: 1
+  equilibrium_length: 9.5e-11
+  spring_constant: 5.0e2
+}
+
+constraint h_o_h_angle {
+  type: bond_angle
+  atom1: hydrogen_atom1
+  atom2: oxygen_atom
+  atom3: hydrogen_atom2
+  equilibrium_angle: 1.824
+  spring_constant: 50.0
+}
+
+motion symmetric_stretch {
+  target: hydrogen_atom1
+  type: molecular_vibration
+  mode_type: symmetric_stretch
+  frequency: 3.657e13
+  amplitude: 1.0e-11
+}
+
+motion asymmetric_stretch {
+  target: hydrogen_atom2
+  type: molecular_vibration
+  mode_type: asymmetric_stretch
+  frequency: 3.756e13
+  amplitude: 1.0e-11
+}
+
+motion bending {
+  target: hydrogen_atom1
+  type: molecular_vibration
+  mode_type: bending
+  frequency: 1.595e13
+  amplitude: 5.0e-12
+}
+
+compound_motion vibrational_modes {
+  type: parallel
+  motions: [symmetric_stretch, asymmetric_stretch, bending]
+  phase_offset: [0, 0.5, 0.25]
+}
+
+timeline main {
+  event {
+    compound_motion: vibrational_modes
+    start: 0.0
+    duration: 5.0e-13
+  }
+}
+```
+
 ---
 
-**Frozen:** 2025-01-24
-**Authority:** This document is the single source of truth.
+**Frozen:** 2026-01-28
+**Authority:** This document is the single source of truth for v2.0.

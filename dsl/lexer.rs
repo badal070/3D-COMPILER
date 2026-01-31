@@ -30,6 +30,14 @@ pub enum TokenKind {
     Event,
     Components,
 
+    // New keywords
+    Materials,
+    Material,
+    Fields,
+    Field,
+    CompoundMotion,
+    Trajectory,
+
     // Special
     Eof,
 }
@@ -174,6 +182,12 @@ impl Lexer {
             "timeline" => TokenKind::Timeline,
             "event" => TokenKind::Event,
             "components" => TokenKind::Components,
+            "materials" => TokenKind::Materials,
+            "material" => TokenKind::Material,
+            "fields" => TokenKind::Fields,
+            "field" => TokenKind::Field,
+            "compound_motion" => TokenKind::CompoundMotion,
+            "trajectory" => TokenKind::Trajectory,
             _ => TokenKind::Identifier(ident),
         };
 
@@ -418,6 +432,23 @@ mod tests {
                 TokenKind::Entity,
                 TokenKind::Motion,
                 TokenKind::Timeline,
+                TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_new_keywords() {
+        let tokens = lex("materials material fields field compound_motion trajectory");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::Materials,
+                TokenKind::Material,
+                TokenKind::Fields,
+                TokenKind::Field,
+                TokenKind::CompoundMotion,
+                TokenKind::Trajectory,
                 TokenKind::Eof
             ]
         );

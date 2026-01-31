@@ -18,6 +18,7 @@ pub struct IrScene {
     pub constraints: Vec<IrConstraint>,
     pub motions: Vec<IrMotion>,
     pub timelines: Vec<IrTimeline>,
+     
 }
 
 #[derive(Debug, Clone, Serialize)]
