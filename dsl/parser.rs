@@ -1,16 +1,21 @@
 /// Parser for the DSL.
 /// Transforms token stream into AST.
 /// Enforces strict syntax rules and mandatory ordering.
-
 use crate::ast::*;
 use crate::errors::{DslError, DslResult, ErrorCode, SourceSpan};
-use crate::lexer::{Token, TokenKind};
+use crate::lexer::{MathConstant, MathKeyword, MathOperator, Token, TokenKind};
 use std::path::PathBuf;
 
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
     file: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ListKind {
+    Numeric,
+    Other,
 }
 
 impl Parser {
@@ -23,9 +28,16 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> DslResult<AstFile> {
+        if self.check(TokenKind::Scene) {
+            return self.parse_scene_document();
+        }
+        self.parse_math_document()
+    }
+
+    fn parse_scene_document(&mut self) -> DslResult<AstFile> {
         let start_span = self.current_span();
 
-        // Mandatory order: scene, library_imports, materials (opt), fields (opt), 
+        // Mandatory order: scene, library_imports, materials (opt), fields (opt),
         // entities, constraints, motions, compound_motions (opt), trajectories (opt), timelines
         let scene = self.parse_scene()?;
         let library_imports = self.parse_library_imports()?;
@@ -73,11 +85,220 @@ impl Parser {
             entities,
             constraints,
             motions,
+            math_objects: Vec::new(),
             compound_motions,
             trajectories,
             timelines,
             span,
         })
+    }
+
+    fn parse_math_document(&mut self) -> DslResult<AstFile> {
+        let start_span = self.current_span();
+
+        while !self.check(TokenKind::Eof) {
+            self.parse_math_statement()?;
+        }
+        self.expect(TokenKind::Eof)?;
+
+        let end_span = self.previous_span();
+        let span = self.span_between(start_span, end_span);
+
+        Ok(AstFile {
+            scene: AstScene {
+                name: "Math Program".to_string(),
+                version: 1,
+                ir_version: "0.1.0".to_string(),
+                unit_system: "SI".to_string(),
+                domain: Some("math".to_string()),
+                span,
+            },
+            library_imports: AstLibraryImports {
+                imports: Vec::new(),
+                span,
+            },
+            materials: Vec::new(),
+            fields: Vec::new(),
+            entities: Vec::new(),
+            constraints: Vec::new(),
+            motions: Vec::new(),
+            math_objects: Vec::new(),
+            compound_motions: Vec::new(),
+            trajectories: Vec::new(),
+            timelines: Vec::new(),
+            span,
+        })
+    }
+
+    fn parse_math_statement(&mut self) -> DslResult<()> {
+        if self.check_math_identifier("ode")
+            || self.check_math_identifier("ode_system")
+            || self.check_math_identifier("visualize")
+        {
+            self.advance();
+            self.expect(TokenKind::LeftBrace)?;
+            self.consume_balanced_braces()?;
+            return Ok(());
+        }
+
+        if self.is_math_top_level_starter() {
+            self.advance(); // statement keyword
+
+            // Optional identifier, e.g. function f(x), matrix A, transformation T
+            if self.check_identifier_like() {
+                self.advance();
+            }
+
+            // Optional signature params, e.g. f(x,y)
+            if self.check(TokenKind::LeftParen) {
+                self.consume_balanced_parentheses()?;
+            }
+
+            // Assignment form: ... = ...
+            if self.check(TokenKind::Equals) {
+                self.advance();
+                self.consume_rhs_until_statement_boundary()?;
+                return Ok(());
+            }
+
+            // Block form: ... { ... }
+            if self.check(TokenKind::LeftBrace) {
+                self.advance();
+                self.consume_balanced_braces()?;
+                return Ok(());
+            }
+
+            // Domain/metadata line forms such as: domain: ...
+            if self.check(TokenKind::Colon) {
+                self.advance();
+                self.consume_rhs_until_statement_boundary()?;
+                return Ok(());
+            }
+
+            return Ok(());
+        }
+
+        Err(self.error(
+            ErrorCode::UnexpectedToken,
+            format!(
+                "Unexpected token in math document: {:?}",
+                self.current().kind
+            ),
+        ))
+    }
+
+    fn consume_rhs_until_statement_boundary(&mut self) -> DslResult<()> {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+
+        while !self.check(TokenKind::Eof) {
+            if paren_depth == 0
+                && bracket_depth == 0
+                && brace_depth == 0
+                && self.is_math_statement_boundary()
+            {
+                break;
+            }
+
+            match self.current().kind {
+                TokenKind::LeftParen => paren_depth += 1,
+                TokenKind::RightParen => paren_depth = paren_depth.saturating_sub(1),
+                TokenKind::LeftBracket => bracket_depth += 1,
+                TokenKind::RightBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                TokenKind::LeftBrace => brace_depth += 1,
+                TokenKind::RightBrace => {
+                    if brace_depth == 0 {
+                        break;
+                    }
+                    brace_depth -= 1;
+                }
+                _ => {}
+            }
+
+            self.advance();
+        }
+
+        Ok(())
+    }
+
+    fn consume_balanced_parentheses(&mut self) -> DslResult<()> {
+        self.expect(TokenKind::LeftParen)?;
+        let mut depth = 1usize;
+        while depth > 0 {
+            if self.check(TokenKind::Eof) {
+                return Err(
+                    self.error(ErrorCode::UnexpectedToken, "Unterminated parenthesis group")
+                );
+            }
+            match self.current().kind {
+                TokenKind::LeftParen => depth += 1,
+                TokenKind::RightParen => depth -= 1,
+                _ => {}
+            }
+            self.advance();
+        }
+        Ok(())
+    }
+
+    fn consume_balanced_braces(&mut self) -> DslResult<()> {
+        let mut depth = 1usize;
+        while depth > 0 {
+            if self.check(TokenKind::Eof) {
+                return Err(self.error(ErrorCode::UnexpectedToken, "Unterminated brace block"));
+            }
+            match self.current().kind {
+                TokenKind::LeftBrace => depth += 1,
+                TokenKind::RightBrace => depth -= 1,
+                _ => {}
+            }
+            self.advance();
+        }
+        Ok(())
+    }
+
+    fn is_math_statement_boundary(&self) -> bool {
+        self.check(TokenKind::RightBrace) || self.is_math_top_level_starter()
+    }
+
+    fn check_identifier_like(&self) -> bool {
+        matches!(
+            self.current().kind,
+            TokenKind::Identifier(_) | TokenKind::GreekLetter(_)
+        )
+    }
+
+    fn check_math_identifier(&self, value: &str) -> bool {
+        matches!(&self.current().kind, TokenKind::Identifier(id) if id == value)
+    }
+
+    fn is_math_top_level_starter(&self) -> bool {
+        match &self.current().kind {
+            TokenKind::MathKeyword(MathKeyword::Function)
+            | TokenKind::MathKeyword(MathKeyword::Curve)
+            | TokenKind::MathKeyword(MathKeyword::Surface)
+            | TokenKind::MathKeyword(MathKeyword::Matrix)
+            | TokenKind::MathKeyword(MathKeyword::VectorField)
+            | TokenKind::MathKeyword(MathKeyword::ScalarField) => true,
+            TokenKind::Identifier(id)
+                if matches!(
+                    id.as_str(),
+                    "function"
+                        | "curve"
+                        | "surface"
+                        | "matrix"
+                        | "ode"
+                        | "ode_system"
+                        | "visualize"
+                        | "transformation"
+                        | "vector_field"
+                        | "scalar_field"
+                ) =>
+            {
+                true
+            }
+            _ => false,
+        }
     }
 
     fn parse_scene(&mut self) -> DslResult<AstScene> {
@@ -88,6 +309,7 @@ impl Parser {
         let mut version = None;
         let mut ir_version = None;
         let mut unit_system = None;
+        let mut domain = None;
 
         while !self.check(TokenKind::RightBrace) {
             let field_name = self.expect_identifier()?;
@@ -102,22 +324,46 @@ impl Parser {
                 }
                 "version" => {
                     if version.is_some() {
-                        return Err(self.error(ErrorCode::DuplicateField, "Duplicate 'version' field"));
+                        return Err(
+                            self.error(ErrorCode::DuplicateField, "Duplicate 'version' field")
+                        );
                     }
                     let num = self.expect_number()?;
                     version = Some(num as i64);
                 }
                 "ir_version" => {
                     if ir_version.is_some() {
-                        return Err(self.error(ErrorCode::DuplicateField, "Duplicate 'ir_version' field"));
+                        return Err(
+                            self.error(ErrorCode::DuplicateField, "Duplicate 'ir_version' field")
+                        );
                     }
                     ir_version = Some(self.expect_string()?);
                 }
                 "unit_system" => {
                     if unit_system.is_some() {
-                        return Err(self.error(ErrorCode::DuplicateField, "Duplicate 'unit_system' field"));
+                        return Err(
+                            self.error(ErrorCode::DuplicateField, "Duplicate 'unit_system' field")
+                        );
                     }
                     unit_system = Some(self.expect_string()?);
+                }
+                "domain" => {
+                    if domain.is_some() {
+                        return Err(
+                            self.error(ErrorCode::DuplicateField, "Duplicate 'domain' field")
+                        );
+                    }
+                    let value = match &self.current().kind {
+                        TokenKind::Identifier(_) => self.expect_identifier()?,
+                        TokenKind::String(_) => self.expect_string()?,
+                        _ => {
+                            return Err(self.error(
+                                ErrorCode::InvalidFieldType,
+                                "Scene 'domain' must be an identifier or string",
+                            ))
+                        }
+                    };
+                    domain = Some(value);
                 }
                 _ => {
                     return Err(self.error(
@@ -130,10 +376,23 @@ impl Parser {
 
         let end_span = self.expect(TokenKind::RightBrace)?.span;
 
-        let name = name.ok_or_else(|| self.error(ErrorCode::MissingRequiredField, "Missing 'name' field"))?;
-        let version = version.ok_or_else(|| self.error(ErrorCode::MissingRequiredField, "Missing 'version' field"))?;
-        let ir_version = ir_version.ok_or_else(|| self.error(ErrorCode::MissingRequiredField, "Missing 'ir_version' field"))?;
-        let unit_system = unit_system.ok_or_else(|| self.error(ErrorCode::MissingRequiredField, "Missing 'unit_system' field"))?;
+        let name = name
+            .ok_or_else(|| self.error(ErrorCode::MissingRequiredField, "Missing 'name' field"))?;
+        let version = version.ok_or_else(|| {
+            self.error(ErrorCode::MissingRequiredField, "Missing 'version' field")
+        })?;
+        let ir_version = ir_version.ok_or_else(|| {
+            self.error(
+                ErrorCode::MissingRequiredField,
+                "Missing 'ir_version' field",
+            )
+        })?;
+        let unit_system = unit_system.ok_or_else(|| {
+            self.error(
+                ErrorCode::MissingRequiredField,
+                "Missing 'unit_system' field",
+            )
+        })?;
 
         let span = self.span_between(start_span, end_span);
 
@@ -142,6 +401,7 @@ impl Parser {
             version,
             ir_version,
             unit_system,
+            domain,
             span,
         })
     }
@@ -315,24 +575,62 @@ impl Parser {
 
     fn parse_value(&mut self) -> DslResult<AstValue> {
         match &self.current().kind {
-            TokenKind::Number(n) => {
-                let val = *n;
-                let span = self.advance().span;
-                Ok(AstValue::Number(val, span))
-            }
             TokenKind::String(s) => {
                 let val = s.clone();
                 let span = self.advance().span;
                 Ok(AstValue::String(val, span))
             }
-            TokenKind::Identifier(id) => {
+            TokenKind::LeftBracket => self.parse_list_value(),
+            TokenKind::Identifier(id) if !self.is_math_expression_starting_here() => {
                 let val = id.clone();
                 let span = self.advance().span;
                 Ok(AstValue::Identifier(val, span))
             }
-            TokenKind::LeftBracket => self.parse_vector(),
-            _ => Err(self.error(ErrorCode::UnexpectedToken, "Expected value")),
+            TokenKind::Number(n) if !self.is_math_expression_starting_here() => {
+                let val = *n;
+                let span = self.advance().span;
+                Ok(AstValue::Number(val, span))
+            }
+            _ => {
+                let start = self.current_span();
+                let expr = self.parse_math_expression()?;
+                let end = self.previous_span();
+                Ok(AstValue::MathExpression(
+                    expr,
+                    self.span_between(start, end),
+                ))
+            }
         }
+    }
+
+    fn parse_list_value(&mut self) -> DslResult<AstValue> {
+        match self.peek_list_kind()? {
+            ListKind::Numeric => self.parse_vector(),
+            ListKind::Other => self.parse_list(),
+        }
+    }
+
+    fn parse_list(&mut self) -> DslResult<AstValue> {
+        let start_span = self.expect(TokenKind::LeftBracket)?.span;
+        let mut values = Vec::new();
+
+        if self.check(TokenKind::RightBracket) {
+            let end_span = self.expect(TokenKind::RightBracket)?.span;
+            let span = self.span_between(start_span, end_span);
+            return Ok(AstValue::List(values, span));
+        }
+
+        values.push(self.parse_value()?);
+
+        while self.check(TokenKind::Comma) {
+            self.advance();
+            values.push(self.parse_value()?);
+        }
+
+        let end_span = self.expect(TokenKind::RightBracket)?.span;
+        let span = self.span_between(start_span, end_span);
+
+        Ok(AstValue::List(values, span))
     }
 
     fn parse_vector(&mut self) -> DslResult<AstValue> {
@@ -350,6 +648,291 @@ impl Parser {
         let span = self.span_between(start_span, end_span);
 
         Ok(AstValue::Vector(values, span))
+    }
+
+    fn peek_list_kind(&self) -> DslResult<ListKind> {
+        let mut idx = self.position;
+        if !matches!(
+            self.tokens.get(idx).map(|t| &t.kind),
+            Some(TokenKind::LeftBracket)
+        ) {
+            return Err(self.error(ErrorCode::UnexpectedToken, "Expected '[' to start a list"));
+        }
+        idx += 1;
+
+        if matches!(
+            self.tokens.get(idx).map(|t| &t.kind),
+            Some(TokenKind::RightBracket)
+        ) {
+            return Ok(ListKind::Other);
+        }
+
+        let mut numeric = true;
+        loop {
+            match self.tokens.get(idx).map(|t| &t.kind) {
+                Some(TokenKind::Number(_)) => idx += 1,
+                _ => {
+                    numeric = false;
+                    break;
+                }
+            }
+
+            match self.tokens.get(idx).map(|t| &t.kind) {
+                Some(TokenKind::Comma) => idx += 1,
+                Some(TokenKind::RightBracket) => break,
+                _ => {
+                    numeric = false;
+                    break;
+                }
+            }
+        }
+
+        Ok(if numeric {
+            ListKind::Numeric
+        } else {
+            ListKind::Other
+        })
+    }
+
+    fn parse_math_expression(&mut self) -> DslResult<MathExpression> {
+        self.parse_additive_expression()
+    }
+
+    fn parse_additive_expression(&mut self) -> DslResult<MathExpression> {
+        let mut expr = self.parse_multiplicative_expression()?;
+
+        loop {
+            let op = if self.check_math_operator(MathOperator::Plus) {
+                Some(MathBinaryOperator::Add)
+            } else if self.check_math_operator(MathOperator::Minus) {
+                Some(MathBinaryOperator::Subtract)
+            } else {
+                None
+            };
+
+            if let Some(op) = op {
+                self.advance();
+                let rhs = self.parse_multiplicative_expression()?;
+                expr = MathExpression::BinaryOp(Box::new(expr), op, Box::new(rhs));
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_multiplicative_expression(&mut self) -> DslResult<MathExpression> {
+        let mut expr = self.parse_power_expression()?;
+
+        loop {
+            let op = if self.check_math_operator(MathOperator::Multiply) {
+                Some(MathBinaryOperator::Multiply)
+            } else if self.check_math_operator(MathOperator::Divide) {
+                Some(MathBinaryOperator::Divide)
+            } else {
+                None
+            };
+
+            if let Some(op) = op {
+                self.advance();
+                let rhs = self.parse_power_expression()?;
+                expr = MathExpression::BinaryOp(Box::new(expr), op, Box::new(rhs));
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_power_expression(&mut self) -> DslResult<MathExpression> {
+        let lhs = self.parse_unary_expression()?;
+        if self.check_math_operator(MathOperator::Power) {
+            self.advance();
+            let rhs = self.parse_power_expression()?;
+            Ok(MathExpression::BinaryOp(
+                Box::new(lhs),
+                MathBinaryOperator::Power,
+                Box::new(rhs),
+            ))
+        } else {
+            Ok(lhs)
+        }
+    }
+
+    fn parse_unary_expression(&mut self) -> DslResult<MathExpression> {
+        if self.check_math_operator(MathOperator::Minus) {
+            self.advance();
+            let expr = self.parse_unary_expression()?;
+            return Ok(MathExpression::UnaryOp(
+                MathUnaryOperator::Negate,
+                Box::new(expr),
+            ));
+        }
+
+        if self.check_math_operator(MathOperator::Gradient) {
+            self.advance();
+            let expr = self.parse_unary_expression()?;
+            return Ok(MathExpression::UnaryOp(
+                MathUnaryOperator::Gradient,
+                Box::new(expr),
+            ));
+        }
+
+        self.parse_primary_expression()
+    }
+
+    fn parse_primary_expression(&mut self) -> DslResult<MathExpression> {
+        match &self.current().kind {
+            TokenKind::Number(n) => {
+                let value = *n;
+                self.advance();
+                Ok(MathExpression::Number(value))
+            }
+            TokenKind::MathConstant(c) => {
+                let constant = match c {
+                    MathConstant::Pi => crate::ast::MathConstant::Pi,
+                    MathConstant::Euler => crate::ast::MathConstant::Euler,
+                    MathConstant::Imaginary => crate::ast::MathConstant::ImaginaryUnit,
+                    MathConstant::Infinity => crate::ast::MathConstant::Infinity,
+                };
+                self.advance();
+                Ok(MathExpression::Constant(constant))
+            }
+            TokenKind::Identifier(_) | TokenKind::GreekLetter(_) => {
+                self.parse_identifier_expression()
+            }
+            TokenKind::MathKeyword(MathKeyword::Derivative) => self.parse_derivative_expression(),
+            TokenKind::MathKeyword(MathKeyword::Integral)
+            | TokenKind::MathOperator(MathOperator::Integral) => self.parse_integral_expression(),
+            TokenKind::LeftParen => {
+                self.advance();
+                let expr = self.parse_math_expression()?;
+                self.expect(TokenKind::RightParen)?;
+                Ok(expr)
+            }
+            _ => Err(self.error(
+                ErrorCode::UnexpectedToken,
+                format!(
+                    "Expected primary expression, found {:?}",
+                    self.current().kind
+                ),
+            )),
+        }
+    }
+
+    fn parse_identifier_expression(&mut self) -> DslResult<MathExpression> {
+        let name = self.expect_identifier_or_greek()?;
+
+        if self.check(TokenKind::LeftParen) {
+            self.advance();
+            let mut args = Vec::new();
+            if !self.check(TokenKind::RightParen) {
+                args.push(self.parse_math_expression()?);
+                while self.check(TokenKind::Comma) {
+                    self.advance();
+                    args.push(self.parse_math_expression()?);
+                }
+            }
+            self.expect(TokenKind::RightParen)?;
+            Ok(MathExpression::FunctionCall(name, args))
+        } else {
+            Ok(MathExpression::Variable(name))
+        }
+    }
+
+    fn parse_derivative_expression(&mut self) -> DslResult<MathExpression> {
+        self.advance(); // derivative keyword
+        self.expect(TokenKind::LeftParen)?;
+        let expression = self.parse_math_expression()?;
+        self.expect(TokenKind::Comma)?;
+        let variable = self.expect_identifier_or_greek()?;
+        let mut order = 1usize;
+        if self.check(TokenKind::Comma) {
+            self.advance();
+            order = self.expect_number()? as usize;
+        }
+        self.expect(TokenKind::RightParen)?;
+
+        Ok(MathExpression::Derivative {
+            expression: Box::new(expression),
+            variable,
+            order,
+        })
+    }
+
+    fn parse_integral_expression(&mut self) -> DslResult<MathExpression> {
+        self.advance(); // integral keyword or ∫ symbol
+        self.expect(TokenKind::LeftParen)?;
+        let expression = self.parse_math_expression()?;
+        self.expect(TokenKind::Comma)?;
+        let variable = self.expect_identifier_or_greek()?;
+
+        let bounds = if self.check(TokenKind::Comma) {
+            self.advance();
+            let lower = self.parse_math_expression()?;
+            self.expect(TokenKind::Comma)?;
+            let upper = self.parse_math_expression()?;
+            Some(Box::new(IntervalConstraint {
+                lower: Box::new(lower),
+                upper: Box::new(upper),
+                lower_inclusive: true,
+                upper_inclusive: true,
+            }))
+        } else {
+            None
+        };
+
+        self.expect(TokenKind::RightParen)?;
+        Ok(MathExpression::Integral {
+            expression: Box::new(expression),
+            variable,
+            bounds,
+        })
+    }
+
+    fn expect_identifier_or_greek(&mut self) -> DslResult<String> {
+        match &self.current().kind {
+            TokenKind::Identifier(id) => {
+                let value = id.clone();
+                self.advance();
+                Ok(value)
+            }
+            TokenKind::GreekLetter(name) => {
+                let value = name.clone();
+                self.advance();
+                Ok(value)
+            }
+            _ => Err(self.error(
+                ErrorCode::ExpectedToken,
+                "Expected identifier or Greek letter",
+            )),
+        }
+    }
+
+    fn check_math_operator(&self, op: MathOperator) -> bool {
+        matches!(&self.current().kind, TokenKind::MathOperator(found) if *found == op)
+    }
+
+    fn is_math_expression_starting_here(&self) -> bool {
+        match &self.current().kind {
+            TokenKind::LeftParen
+            | TokenKind::MathConstant(_)
+            | TokenKind::GreekLetter(_)
+            | TokenKind::MathKeyword(MathKeyword::Derivative)
+            | TokenKind::MathKeyword(MathKeyword::Integral)
+            | TokenKind::MathOperator(MathOperator::Integral) => true,
+            TokenKind::Number(_) | TokenKind::Identifier(_) => self
+                .tokens
+                .get(self.position + 1)
+                .is_some_and(|next| match &next.kind {
+                    TokenKind::LeftParen => true,
+                    TokenKind::MathOperator(_) => true,
+                    _ => false,
+                }),
+            _ => false,
+        }
     }
 
     fn parse_constraints(&mut self) -> DslResult<Vec<AstConstraint>> {
@@ -592,6 +1175,13 @@ mod tests {
         parser.parse()
     }
 
+    fn parse_expr(source: &str) -> DslResult<MathExpression> {
+        let mut lexer = Lexer::new(source.to_string(), PathBuf::from("expr.dsl"));
+        let tokens = lexer.tokenize()?;
+        let mut parser = Parser::new(tokens, PathBuf::from("expr.dsl"));
+        parser.parse_math_expression()
+    }
+
     #[test]
     fn test_minimal_scene() {
         let source = r#"
@@ -638,5 +1228,46 @@ entity cube1 {
         assert_eq!(ast.entities.len(), 1);
         assert_eq!(ast.entities[0].name, "cube1");
         assert_eq!(ast.entities[0].kind, "solid");
+    }
+
+    #[test]
+    fn test_expression_precedence() {
+        let expr = parse_expr("1 + 2 * 3").unwrap();
+        match expr {
+            MathExpression::BinaryOp(_, MathBinaryOperator::Add, rhs) => {
+                assert!(matches!(
+                    *rhs,
+                    MathExpression::BinaryOp(_, MathBinaryOperator::Multiply, _)
+                ));
+            }
+            _ => panic!("expected additive expression root"),
+        }
+    }
+
+    #[test]
+    fn test_function_call_expression() {
+        let expr = parse_expr("sin(x)").unwrap();
+        match expr {
+            MathExpression::FunctionCall(name, args) => {
+                assert_eq!(name, "sin");
+                assert_eq!(args.len(), 1);
+            }
+            _ => panic!("expected function call"),
+        }
+    }
+
+    #[test]
+    fn test_derivative_expression() {
+        let expr = parse_expr("derivative(x^2, x)").unwrap();
+        assert!(matches!(expr, MathExpression::Derivative { .. }));
+    }
+
+    #[test]
+    fn test_integral_expression_with_bounds() {
+        let expr = parse_expr("integral(x^2, x, 0, 1)").unwrap();
+        match expr {
+            MathExpression::Integral { bounds, .. } => assert!(bounds.is_some()),
+            _ => panic!("expected integral expression"),
+        }
     }
 }

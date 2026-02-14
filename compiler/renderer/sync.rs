@@ -58,7 +58,8 @@ impl FrameSync {
             // Check if we should render
             if self.accumulator >= self.frame_duration {
                 // Track dropped frames
-                let frames_passed = self.accumulator.as_secs_f64() / self.frame_duration.as_secs_f64();
+                let frames_passed =
+                    self.accumulator.as_secs_f64() / self.frame_duration.as_secs_f64();
                 if frames_passed > 1.5 {
                     self.dropped_frames += (frames_passed - 1.0) as u64;
                 }

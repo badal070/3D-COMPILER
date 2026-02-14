@@ -5,7 +5,8 @@
 // No heuristics unless proven safe
 
 use crate::error::{ConstraintError, ConstraintErrorKind, RuntimeError, RuntimeResult};
-use crate::state::{WorldState, ObjectId};
+use crate::state::world_state::{ActiveConstraint, ConstraintKind};
+use crate::state::{ObjectId, Quaternion, Vector3, WorldState};
 use std::collections::HashMap;
 
 /// Constraint solver configuration
@@ -98,7 +99,7 @@ impl ConstraintSolver {
 
                     // Compute correction
                     let correction = self.compute_correction(constraint, state, residual)?;
-                    
+
                     // Store correction
                     for (obj_id, delta) in correction {
                         result
@@ -134,36 +135,250 @@ impl ConstraintSolver {
 
     fn evaluate_constraint(
         &self,
-        constraint: &crate::state::world_state::ActiveConstraint,
+        constraint: &ActiveConstraint,
         state: &WorldState,
     ) -> RuntimeResult<f64> {
-        // This is a placeholder - actual evaluation would parse and execute
-        // the constraint equation using the objects and parameters
+        match constraint.kind {
+            // Distance between two objects should match target distance
+            ConstraintKind::Distance => {
+                if constraint.objects.len() < 2 || constraint.parameters.is_empty() {
+                    return Ok(0.0);
+                }
 
-        // For now, return 0 (satisfied)
-        // Real implementation would:
-        // 1. Parse constraint.equation
-        // 2. Gather values from constraint.objects and constraint.parameters
-        // 3. Evaluate expression
-        // 4. Return residual
+                let a_id = &constraint.objects[0];
+                let b_id = &constraint.objects[1];
+                let param_id = &constraint.parameters[0];
 
-        Ok(0.0)
+                let a = match state.get_object(a_id) {
+                    Some(o) => o,
+                    None => return Ok(0.0),
+                };
+                let b = match state.get_object(b_id) {
+                    Some(o) => o,
+                    None => return Ok(0.0),
+                };
+
+                let target = match state.parameters.get(param_id) {
+                    Some(v) => v,
+                    None => return Ok(0.0),
+                };
+
+                let dx = b.position.x - a.position.x;
+                let dy = b.position.y - a.position.y;
+                let dz = b.position.z - a.position.z;
+                let current = (dx * dx + dy * dy + dz * dz).sqrt();
+
+                Ok(current - target)
+            }
+
+            // Angle relation (used for gear relations)
+            ConstraintKind::Angle => {
+                if constraint.objects.len() < 2 || constraint.parameters.is_empty() {
+                    return Ok(0.0);
+                }
+
+                let driver_id = &constraint.objects[0];
+                let driven_id = &constraint.objects[1];
+                let param_id = &constraint.parameters[0];
+
+                let driver = match state.get_object(driver_id) {
+                    Some(o) => o,
+                    None => return Ok(0.0),
+                };
+                let driven = match state.get_object(driven_id) {
+                    Some(o) => o,
+                    None => return Ok(0.0),
+                };
+
+                let ratio = match state.parameters.get(param_id) {
+                    Some(v) => v,
+                    None => return Ok(0.0),
+                };
+
+                let angle_driver = yaw_from_quaternion(&driver.orientation);
+                let angle_driven = yaw_from_quaternion(&driven.orientation);
+
+                Ok(angle_driven - ratio * angle_driver)
+            }
+
+            // Equality constraint (used for fixed joints)
+            ConstraintKind::Equality => {
+                if constraint.objects.len() < 2 {
+                    return Ok(0.0);
+                }
+
+                let parent_id = &constraint.objects[0];
+                let child_id = &constraint.objects[1];
+
+                let parent = match state.get_object(parent_id) {
+                    Some(o) => o,
+                    None => return Ok(0.0),
+                };
+                let child = match state.get_object(child_id) {
+                    Some(o) => o,
+                    None => return Ok(0.0),
+                };
+
+                let dx = child.position.x - parent.position.x;
+                let dy = child.position.y - parent.position.y;
+                let dz = child.position.z - parent.position.z;
+                let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+
+                // Residual is simply the separation distance; solver will try to drive it to 0.
+                Ok(distance)
+            }
+
+            // Other kinds are not yet interpreted
+            _ => Ok(0.0),
+        }
     }
 
     fn compute_correction(
         &self,
-        constraint: &crate::state::world_state::ActiveConstraint,
+        constraint: &ActiveConstraint,
         state: &WorldState,
         residual: f64,
     ) -> RuntimeResult<HashMap<ObjectId, CorrectionDelta>> {
-        // Placeholder - compute how to correct objects to satisfy constraint
-        // Real implementation would:
-        // 1. Compute gradient of constraint w.r.t. object parameters
-        // 2. Compute correction direction
-        // 3. Apply relaxation factor
-        // 4. Return corrections for each object
+        let mut map = HashMap::new();
 
-        Ok(HashMap::new())
+        match constraint.kind {
+            // Pull two objects towards/away from each other along their connecting line
+            ConstraintKind::Distance => {
+                if constraint.objects.len() < 2 || constraint.parameters.is_empty() {
+                    return Ok(map);
+                }
+
+                let a_id = &constraint.objects[0];
+                let b_id = &constraint.objects[1];
+                let _param_id = &constraint.parameters[0];
+
+                let a = match state.get_object(a_id) {
+                    Some(o) => o,
+                    None => return Ok(map),
+                };
+                let b = match state.get_object(b_id) {
+                    Some(o) => o,
+                    None => return Ok(map),
+                };
+
+                let dx = b.position.x - a.position.x;
+                let dy = b.position.y - a.position.y;
+                let dz = b.position.z - a.position.z;
+                let current = (dx * dx + dy * dy + dz * dz).sqrt();
+
+                if current == 0.0 {
+                    return Ok(map);
+                }
+
+                // Direction from A to B
+                let dir = Vector3::new(dx / current, dy / current, dz / current);
+
+                // Simple symmetric correction: move each object half the residual
+                let step = -0.5 * residual * self.config.relaxation;
+
+                let delta_a = [dir.x * step, dir.y * step, dir.z * step];
+                let delta_b = [-dir.x * step, -dir.y * step, -dir.z * step];
+
+                map.insert(
+                    a_id.clone(),
+                    CorrectionDelta {
+                        kind: CorrectionKind::Position,
+                        value: CorrectableValue::Vector3(delta_a),
+                    },
+                );
+                map.insert(
+                    b_id.clone(),
+                    CorrectionDelta {
+                        kind: CorrectionKind::Position,
+                        value: CorrectableValue::Vector3(delta_b),
+                    },
+                );
+            }
+
+            // For gear relations, adjust the driven gear's orientation to match the target ratio
+            ConstraintKind::Angle => {
+                if constraint.objects.len() < 2 || constraint.parameters.is_empty() {
+                    return Ok(map);
+                }
+
+                let driver_id = &constraint.objects[0];
+                let driven_id = &constraint.objects[1];
+                let param_id = &constraint.parameters[0];
+
+                let driver = match state.get_object(driver_id) {
+                    Some(o) => o,
+                    None => return Ok(map),
+                };
+                let driven = match state.get_object(driven_id) {
+                    Some(o) => o,
+                    None => return Ok(map),
+                };
+
+                let ratio = match state.parameters.get(param_id) {
+                    Some(v) => v,
+                    None => return Ok(map),
+                };
+
+                let angle_driver = yaw_from_quaternion(&driver.orientation);
+                let angle_driven = yaw_from_quaternion(&driven.orientation);
+                let desired_driven = ratio * angle_driver;
+
+                // Residual we got is angle_driven - desired_driven
+                let error = angle_driven - desired_driven;
+                let delta_angle = -error * self.config.relaxation;
+
+                let dq = quaternion_from_yaw(delta_angle);
+
+                map.insert(
+                    driven_id.clone(),
+                    CorrectionDelta {
+                        kind: CorrectionKind::Orientation,
+                        value: CorrectableValue::Quaternion([dq.w, dq.x, dq.y, dq.z]),
+                    },
+                );
+            }
+
+            // For fixed joints, move the child toward the parent position
+            ConstraintKind::Equality => {
+                if constraint.objects.len() < 2 {
+                    return Ok(map);
+                }
+
+                let parent_id = &constraint.objects[0];
+                let child_id = &constraint.objects[1];
+
+                let parent = match state.get_object(parent_id) {
+                    Some(o) => o,
+                    None => return Ok(map),
+                };
+                let child = match state.get_object(child_id) {
+                    Some(o) => o,
+                    None => return Ok(map),
+                };
+
+                let dx = parent.position.x - child.position.x;
+                let dy = parent.position.y - child.position.y;
+                let dz = parent.position.z - child.position.z;
+
+                let delta = [
+                    dx * self.config.relaxation,
+                    dy * self.config.relaxation,
+                    dz * self.config.relaxation,
+                ];
+
+                map.insert(
+                    child_id.clone(),
+                    CorrectionDelta {
+                        kind: CorrectionKind::Position,
+                        value: CorrectableValue::Vector3(delta),
+                    },
+                );
+            }
+
+            _ => {}
+        }
+
+        Ok(map)
     }
 
     pub fn config(&self) -> &SolverConfig {
@@ -173,6 +388,22 @@ impl ConstraintSolver {
     pub fn config_mut(&mut self) -> &mut SolverConfig {
         &mut self.config
     }
+}
+
+/// Extract a yaw angle (rotation around Z axis) from a unit quaternion.
+fn yaw_from_quaternion(q: &Quaternion) -> f64 {
+    // Standard yaw extraction from quaternion
+    let siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
+    let cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+    siny_cosp.atan2(cosy_cosp)
+}
+
+/// Build a quaternion representing a rotation of `angle` radians around Z.
+fn quaternion_from_yaw(angle: f64) -> Quaternion {
+    let half = angle * 0.5;
+    let s = half.sin();
+    let c = half.cos();
+    Quaternion::new(c, 0.0, 0.0, s)
 }
 
 /// Result of constraint solving

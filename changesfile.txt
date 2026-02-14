@@ -1,0 +1,1893 @@
+
+
+
+
+
+
+
+
+File-by-File Change Requirements for Math Visualization Engine
+Directory Structure Changes Required
+New Directories to Create
+src/
+  math/                          # New: Mathematical computation core
+  visualization/                 # New: Math-specific visualization
+  educational/                   # New: Educational features
+  modules/                       # New: Domain-specific math modules
+  numerical/                     # New: Numerical methods
+  symbolic/                      # New: Symbolic computation
+
+CORE LANGUAGE & COMPILER FILES
+1. src/lexer.rs
+Purpose: Tokenize DSL source code
+Changes Required:
+
+Add mathematical operator tokens: ∂ (partial derivative), ∫ (integral), ∑ (summation), ∏ (product), ∇ (gradient), × (cross product), · (dot product)
+Add mathematical keywords: function, curve, surface, field, domain, range, limit, derivative, integral, parameter, implicit, parametric, polar, complex, matrix, vector_field, scalar_field
+Add special number tokens: π, e, i (imaginary unit), ∞ (infinity)
+Add mathematical delimiters: |...| (absolute value), ⟨...⟩ (inner product), ∥...∥ (norm)
+Add Greek letter support: α, β, γ, θ, φ, etc.
+Add subscript/superscript tokens for notation
+Add LaTeX-style math expression tokens: \frac, \sqrt, \int, etc.
+Extend number parsing for complex numbers: 3+4i, 2∠π/4
+Add interval notation: [a,b], (a,b), [a,b), (a,b]
+Add set notation tokens: ∈, ∉, ⊂, ∪, ∩
+
+New Token Types to Add:
+
+MathOperator
+MathFunction
+MathConstant
+ComplexNumber
+Interval
+GreekLetter
+MathSymbol
+
+
+2. src/parser.rs
+Purpose: Parse tokens into AST
+Changes Required:
+
+Add AST node types for mathematical expressions:
+
+FunctionDefinition: name, parameters, body, domain, range
+CurveDefinition: type (explicit/implicit/parametric), equations, parameter domain
+SurfaceDefinition: type, equations, parameter domain (u,v)
+VectorFieldDefinition: components, domain
+ScalarFieldDefinition: expression, domain
+TransformationDefinition: type, matrix/function, properties
+ComplexFunctionDefinition: real and imaginary parts or single complex expression
+DifferentialEquation: order, equation, initial/boundary conditions
+MatrixDefinition: dimensions, elements
+
+
+Add expression parsing for:
+
+Arithmetic operations with proper precedence
+Function calls: sin(x), log(x, base), f(x,y,z)
+Derivatives: d/dx[f(x)], ∂/∂x[f(x,y)]
+Integrals: ∫f(x)dx from a to b
+Summations and products: ∑(i=1 to n) f(i)
+Limits: lim(x→a) f(x)
+Complex operations: conjugate, magnitude, argument
+Matrix operations: multiplication, transpose, inverse, determinant
+Vector operations: dot, cross, norm
+
+
+Add domain/range constraint parsing:
+
+x in [0, 2π]
+x,y in R² where x²+y²<1
+z in C
+
+
+Add piecewise function parsing:
+
+  f(x) = { x² if x ≥ 0, -x² if x < 0 }
+
+Add parametric definition parsing:
+
+  curve r(t) = (cos(t), sin(t), t) for t in [0, 2π]
+
+Add implicit equation parsing:
+
+  surface: x² + y² + z² = 1
+
+Extend grammar for mathematical properties:
+
+Continuity specifications
+Differentiability requirements
+Symmetry properties
+Periodicity
+
+
+
+Parser Structure Changes:
+
+Add parse_function_definition()
+Add parse_mathematical_expression()
+Add parse_curve_definition()
+Add parse_surface_definition()
+Add parse_field_definition()
+Add parse_domain_constraint()
+Add parse_derivative_expression()
+Add parse_integral_expression()
+Extend precedence climbing for math operators
+
+
+3. src/ast.rs
+Purpose: Abstract Syntax Tree definitions
+Changes Required:
+
+Add new AST node enums and structs:
+
+rust// Core mathematical objects
+MathObject
+  - Function(FunctionNode)
+  - Curve(CurveNode)
+  - Surface(SurfaceNode)
+  - VectorField(VectorFieldNode)
+  - ScalarField(ScalarFieldNode)
+  - Transformation(TransformationNode)
+  - DifferentialEquation(DENode)
+
+// Expression types
+Expression
+  - Variable(String)
+  - Constant(MathConstant)
+  - Number(f64 or Complex)
+  - BinaryOp(Box<Expr>, Operator, Box<Expr>)
+  - UnaryOp(Operator, Box<Expr>)
+  - FunctionCall(String, Vec<Expr>)
+  - Derivative(Box<Expr>, Variable, Order)
+  - Integral(Box<Expr>, Variable, Bounds)
+  - Limit(Box<Expr>, Variable, Approach)
+  - Summation(Box<Expr>, Variable, Bounds)
+  - Product(Box<Expr>, Variable, Bounds)
+  - Piecewise(Vec<(Condition, Expr)>)
+  - MatrixExpr(Vec<Vec<Expr>>)
+  - VectorExpr(Vec<Expr>)
+  - ComplexExpr(Box<Expr>, Box<Expr>)
+
+// Specialized nodes
+FunctionNode {
+  name: String,
+  parameters: Vec<String>,
+  body: Expression,
+  domain: DomainConstraint,
+  range: Option<RangeConstraint>,
+  properties: FunctionProperties,
+}
+
+CurveNode {
+  curve_type: CurveType, // Explicit, Implicit, Parametric, Polar
+  definition: CurveDefinition,
+  parameter: Option<Parameter>,
+  domain: DomainConstraint,
+  properties: CurveProperties,
+}
+
+SurfaceNode {
+  surface_type: SurfaceType,
+  definition: SurfaceDefinition,
+  parameters: Option<(Parameter, Parameter)>,
+  domain: DomainConstraint,
+  properties: SurfaceProperties,
+}
+
+VectorFieldNode {
+  components: Vec<Expression>,
+  dimension: usize,
+  domain: DomainConstraint,
+}
+
+ScalarFieldNode {
+  expression: Expression,
+  domain: DomainConstraint,
+}
+
+DifferentialEquationNode {
+  equation_type: DEType, // ODE, PDE
+  order: usize,
+  equation: Expression,
+  initial_conditions: Vec<Condition>,
+  boundary_conditions: Vec<Condition>,
+}
+
+Add property structs:
+
+rustFunctionProperties {
+  continuous: bool,
+  differentiable: Option<usize>, // order of differentiability
+  periodic: Option<f64>,
+  symmetric: Option<SymmetryType>,
+  monotonic: Option<MonotonicityType>,
+}
+
+CurveProperties {
+  closed: bool,
+  smooth: bool,
+  parameterization: ParameterizationType,
+}
+
+SurfaceProperties {
+  orientable: bool,
+  closed: bool,
+  genus: Option<usize>,
+}
+
+Add constraint types:
+
+rustDomainConstraint {
+  variables: Vec<String>,
+  constraints: Vec<Constraint>,
+  space: Space, // R, R², R³, C, etc.
+}
+
+Constraint {
+  constraint_type: ConstraintType,
+  expression: Expression,
+}
+
+4. src/ir.rs
+Purpose: Intermediate Representation
+Changes Required:
+
+Extend IRNode enum with mathematical objects:
+
+MathFunction
+ParametricCurve
+ParametricSurface
+ImplicitSurface
+VectorField
+ScalarField
+ComplexFunction
+Transformation
+DifferentialEquationSystem
+SymbolicExpression
+
+
+Add new IR structs:
+
+rustIRMathFunction {
+  id: usize,
+  expression: IRExpression,
+  parameters: Vec<String>,
+  domain: IRDomain,
+  evaluation_cache: Option<CacheStrategy>,
+  derivative_cache: HashMap<DerivativeSpec, IRExpression>,
+}
+
+IRParametricCurve {
+  id: usize,
+  components: Vec<IRExpression>, // x(t), y(t), z(t)
+  parameter: String,
+  parameter_domain: Interval,
+  sampling_strategy: SamplingStrategy,
+  arc_length_parameterized: bool,
+}
+
+IRParametricSurface {
+  id: usize,
+  components: Vec<IRExpression>, // x(u,v), y(u,v), z(u,v)
+  parameters: (String, String),
+  parameter_domain: (Interval, Interval),
+  mesh_resolution: (usize, usize),
+  normal_computation: NormalComputationType,
+}
+
+IRVectorField {
+  id: usize,
+  components: Vec<IRExpression>,
+  domain: IRDomain,
+  sampling_grid: GridSpecification,
+  normalization: Option<NormalizationType>,
+}
+
+IRScalarField {
+  id: usize,
+  expression: IRExpression,
+  domain: IRDomain,
+  level_sets: Vec<f64>,
+  gradient_field: Option<Box<IRVectorField>>,
+}
+
+IRExpression {
+  expression_type: ExpressionType,
+  cached_value: Option<CachedResult>,
+  derivative_info: Option<DerivativeInfo>,
+  complexity: usize, // for optimization decisions
+}
+
+Add mathematical operator representations:
+
+rustIROperator {
+  Derivative { variable: String, order: usize },
+  Integral { variable: String, bounds: Bounds },
+  Limit { variable: String, approach: Approach },
+  Gradient,
+  Divergence,
+  Curl,
+  Laplacian,
+}
+
+Add coordinate system specifications:
+
+rustCoordinateSystem {
+  system_type: CoordSystemType, // Cartesian, Polar, Cylindrical, Spherical, Custom
+  basis_vectors: Option<Vec<IRExpression>>,
+  transformation_to_cartesian: Option<TransformationMatrix>,
+}
+
+Extend with mathematical metadata:
+
+rustMathematicalMetadata {
+  analytical_form: Option<AnalyticalForm>,
+  numerical_properties: NumericalProperties,
+  singularities: Vec<Singularity>,
+  discontinuities: Vec<Discontinuity>,
+  asymptotes: Vec<Asymptote>,
+}
+
+5. src/semantic_analyzer.rs
+Purpose: Semantic validation and type checking
+Changes Required:
+
+Add mathematical type system:
+
+rustMathType {
+  Real,
+  Complex,
+  Integer,
+  Rational,
+  Vector(usize), // dimension
+  Matrix(usize, usize),
+  Function(Vec<MathType>, Box<MathType>),
+  ScalarField(usize), // dimension of domain
+  VectorField(usize, usize), // domain dim, codomain dim
+  Curve(usize), // ambient dimension
+  Surface(usize),
+  Tensor(Vec<usize>),
+}
+
+Add validation passes:
+
+Domain validation: Check function defined on specified domain
+Dimension consistency: Vector/matrix operations match dimensions
+Type inference: Infer types from operations
+Differentiability checking: Verify derivative exists where used
+Continuity verification: Check continuity requirements
+Singularity detection: Identify division by zero, undefined points
+Parameter range validation: Ensure parameters stay in valid ranges
+Coordinate system compatibility: Check transformations are valid
+Boundary condition consistency: For differential equations
+Convergence criteria: For series and iterative methods
+
+
+Add symbol table for mathematical objects:
+
+rustMathSymbolTable {
+  functions: HashMap<String, FunctionSignature>,
+  variables: HashMap<String, VariableInfo>,
+  parameters: HashMap<String, ParameterInfo>,
+  constants: HashMap<String, ConstantValue>,
+  user_defined: HashMap<String, MathObject>,
+}
+
+Add mathematical correctness checks:
+
+Verify implicit function theorem conditions
+Check inverse function existence
+Validate change of variables for integrals
+Ensure well-posedness of differential equations
+Check Lipschitz conditions for existence/uniqueness
+
+
+Add dependency analysis:
+
+Track function dependencies
+Build computation graphs
+Detect circular definitions
+Optimize evaluation order
+
+
+
+
+6. src/validator.rs
+Purpose: Additional validation logic
+Changes Required:
+
+Add mathematical validation functions:
+
+rustvalidate_function_domain()
+  - Check domain is well-defined
+  - Verify no contradictory constraints
+  - Ensure domain is measurable/computable
+
+validate_derivative_exists()
+  - Check differentiability at points
+  - Verify continuity prerequisites
+  - Identify non-differentiable points
+
+validate_integral_convergence()
+  - Check improper integral convergence
+  - Verify integrand boundedness
+  - Detect singularities in integration path
+
+validate_series_convergence()
+  - Apply convergence tests
+  - Check necessary conditions
+  - Estimate error bounds
+
+validate_numerical_stability()
+  - Check condition numbers
+  - Identify ill-conditioned problems
+  - Suggest alternative formulations
+
+validate_coordinate_transformation()
+  - Verify Jacobian non-zero
+  - Check transformation invertibility
+  - Validate domain mapping
+
+validate_differential_equation()
+  - Check well-posedness
+  - Verify initial/boundary conditions sufficiency
+  - Identify stiff equations
+
+Add educational validation:
+
+rustvalidate_pedagogical_appropriateness()
+  - Check complexity level
+  - Identify prerequisite concepts
+  - Suggest progressive difficulty
+
+validate_visualization_clarity()
+  - Prevent cluttered displays
+  - Ensure readable scales
+  - Check color scheme accessibility
+
+Add numerical validation:
+
+rustvalidate_numerical_parameters()
+  - Check step sizes
+  - Verify tolerance values
+  - Ensure iteration limits reasonable
+
+7. src/compiler.rs
+Purpose: Orchestrate compilation pipeline
+Changes Required:
+
+Add mathematical optimization passes:
+
+rustoptimize_expression()
+  - Constant folding
+  - Common subexpression elimination
+  - Algebraic simplification
+  - Trigonometric identities
+  - Strength reduction
+
+optimize_symbolic_computation()
+  - Cache derivative results
+  - Reuse integral computations
+  - Memoize expensive functions
+  - Precompute constant expressions
+
+Add mathematical transformation passes:
+
+rustlower_derivatives_to_numerical()
+  - Convert symbolic to finite differences
+  - Choose appropriate stencils
+  - Handle boundary conditions
+
+lower_integrals_to_numerical()
+  - Select quadrature method
+  - Determine integration points
+  - Adaptive refinement strategy
+
+expand_series()
+  - Taylor series expansion
+  - Fourier series expansion
+  - Power series representation
+
+Add compilation strategies:
+
+rustCompilationStrategy {
+  SymbolicOnly,      // Keep as symbolic expressions
+  NumericOnly,       // Convert everything to numeric
+  Hybrid,            // Symbolic where possible, numeric fallback
+  GPUAccelerated,    // Compile for GPU execution
+}
+
+Extend pipeline stages:
+
+Lexing
+Parsing
+AST Construction
+Mathematical Type Inference (new)
+Semantic Analysis
+Mathematical Validation (new)
+Symbolic Simplification (new)
+IR Generation
+Mathematical Optimization (new)
+Numerical Method Selection (new)
+Code Generation/Runtime Preparation
+
+
+
+
+8. src/error.rs
+Purpose: Error type definitions and handling
+Changes Required:
+
+Add mathematical error types:
+
+rustCompilerError {
+  // Existing errors...
+  
+  // New mathematical errors
+  DomainError {
+    function: String,
+    value: f64,
+    valid_domain: String,
+    location: Location,
+  },
+  
+  SingularityError {
+    expression: String,
+    singularity_point: String,
+    singularity_type: SingularityType,
+    location: Location,
+  },
+  
+  ConvergenceError {
+    operation: String,
+    iterations: usize,
+    residual: f64,
+    location: Location,
+  },
+  
+  NumericalInstability {
+    operation: String,
+    condition_number: f64,
+    suggestion: String,
+    location: Location,
+  },
+  
+  DimensionMismatch {
+    expected: Vec<usize>,
+    found: Vec<usize>,
+    operation: String,
+    location: Location,
+  },
+  
+  TypeMismatchMath {
+    expected: MathType,
+    found: MathType,
+    operation: String,
+    location: Location,
+  },
+  
+  UndefinedOperation {
+    operation: String,
+    reason: String,
+    location: Location,
+  },
+  
+  DifferentiabilityError {
+    function: String,
+    point: String,
+    reason: String,
+    location: Location,
+  },
+  
+  IntegrationError {
+    integral: String,
+    error_type: IntegrationErrorType,
+    location: Location,
+  },
+  
+  BoundaryConditionError {
+    equation: String,
+    missing_conditions: Vec<String>,
+    location: Location,
+  },
+  
+  SymbolicComputationError {
+    expression: String,
+    operation: String,
+    reason: String,
+    location: Location,
+  },
+}
+
+Add warning types:
+
+rustCompilerWarning {
+  // Existing warnings...
+  
+  // New mathematical warnings
+  NumericalAccuracyWarning {
+    operation: String,
+    estimated_error: f64,
+    location: Location,
+  },
+  
+  SlowConvergence {
+    operation: String,
+    iterations: usize,
+    suggestion: String,
+    location: Location,
+  },
+  
+  ApproximationUsed {
+    exact_operation: String,
+    approximation: String,
+    error_bound: Option<f64>,
+    location: Location,
+  },
+  
+  SingularityNearby {
+    function: String,
+    distance_to_singularity: f64,
+    location: Location,
+  },
+}
+
+Enhance error messages with:
+
+Mathematical explanation of what went wrong
+Suggestions for fixing (e.g., "Try restricting domain to...")
+Links to mathematical concepts
+Visual representation of error location
+
+
+
+
+9. src/runtime.rs
+Purpose: Runtime execution environment
+Changes Required:
+
+Extend runtime state with mathematical context:
+
+rustRuntimeState {
+  // Existing fields...
+  
+  // New mathematical fields
+  function_cache: FunctionCache,
+  derivative_cache: DerivativeCache,
+  integral_cache: IntegralCache,
+  symbolic_engine: SymbolicEngine,
+  numerical_engine: NumericalEngine,
+  coordinate_systems: HashMap<String, CoordinateSystem>,
+  active_parameters: HashMap<String, f64>,
+  evaluation_context: EvaluationContext,
+  computational_graph: ComputationGraph,
+}
+
+Add mathematical evaluation:
+
+rustevaluate_expression(expr: &IRExpression, variables: &VariableMap) -> Result<Value>
+  - Evaluate arithmetic expressions
+  - Call mathematical functions
+  - Handle symbolic operations
+  - Cache results
+
+evaluate_derivative(expr: &IRExpression, variable: &str) -> Result<IRExpression>
+  - Symbolic differentiation
+  - Numerical differentiation fallback
+  - Cache derivative expressions
+
+evaluate_integral(expr: &IRExpression, variable: &str, bounds: Bounds) -> Result<f64>
+  - Symbolic integration attempt
+  - Numerical quadrature
+  - Adaptive refinement
+  - Error estimation
+
+solve_equation(equation: &IRExpression, variable: &str, initial_guess: Option<f64>) -> Result<Vec<f64>>
+  - Root finding algorithms
+  - Multiple root search
+  - Convergence monitoring
+
+solve_differential_equation(de: &DifferentialEquation) -> Result<Solution>
+  - Select appropriate solver
+  - Integrate numerically
+  - Check stability
+  - Return solution function
+
+Add parameter management:
+
+rustset_parameter(name: &str, value: f64)
+  - Update parameter value
+  - Invalidate dependent caches
+  - Trigger recomputation
+  - Notify observers
+
+get_parameter_range(name: &str) -> (f64, f64)
+  - Return valid parameter range
+
+animate_parameter(name: &str, from: f64, to: f64, duration: f64)
+  - Smoothly transition parameter
+  - Generate intermediate frames
+  - Update visualization
+
+Add computational graph execution:
+
+rustbuild_computation_graph() -> ComputationGraph
+  - Analyze dependencies
+  - Determine evaluation order
+  - Identify parallelizable operations
+
+execute_graph(graph: &ComputationGraph) -> Result<()>
+  - Execute nodes in topological order
+  - Parallel execution where possible
+  - Cache intermediate results
+
+NEW CORE FILES TO CREATE
+10. src/math/mod.rs (NEW)
+Purpose: Main mathematical computation module
+Contents:
+
+Module declarations
+Public API exports
+Mathematical constants
+Utility functions
+
+Structure:
+rustpub mod expression;
+pub mod symbolic;
+pub mod numerical;
+pub mod types;
+pub mod functions;
+pub mod operators;
+pub mod domain;
+
+// Re-exports
+pub use expression::*;
+pub use types::*;
+
+11. src/math/expression.rs (NEW)
+Purpose: Expression representation and manipulation
+Required Functions:
+rustExpression::new()
+Expression::from_string()
+Expression::evaluate()
+Expression::simplify()
+Expression::substitute()
+Expression::to_latex()
+Expression::to_string()
+Expression::variables()
+Expression::constants()
+Expression::complexity()
+Required Structs:
+rustExpression
+ExpressionNode
+BinaryOperation
+UnaryOperation
+FunctionCall
+Variable
+Constant
+
+12. src/math/symbolic.rs (NEW)
+Purpose: Symbolic computation engine
+Required Functions:
+rustdifferentiate(expr: &Expression, var: &str) -> Expression
+integrate(expr: &Expression, var: &str) -> Option<Expression>
+simplify(expr: &Expression) -> Expression
+expand(expr: &Expression) -> Expression
+factor(expr: &Expression) -> Expression
+solve_equation(eq: &Expression, var: &str) -> Vec<Expression>
+limit(expr: &Expression, var: &str, point: f64) -> Option<f64>
+series_expansion(expr: &Expression, var: &str, point: f64, order: usize) -> Expression
+Required Structs:
+rustDerivativeRule
+IntegrationRule
+SimplificationRule
+SymbolicSolver
+
+13. src/math/numerical.rs (NEW)
+Purpose: Numerical methods implementation
+Required Functions:
+rust// Numerical integration
+integrate_trapezoid()
+integrate_simpson()
+integrate_adaptive()
+integrate_gauss_quadrature()
+
+// Root finding
+find_root_bisection()
+find_root_newton()
+find_root_secant()
+find_all_roots()
+
+// Optimization
+optimize_gradient_descent()
+optimize_newton()
+optimize_constrained()
+
+// Differential equations
+solve_ode_euler()
+solve_ode_rk4()
+solve_ode_adaptive()
+solve_pde_finite_difference()
+
+// Linear algebra
+matrix_multiply()
+matrix_inverse()
+matrix_eigenvalues()
+matrix_svd()
+solve_linear_system()
+
+// Interpolation
+interpolate_polynomial()
+interpolate_spline()
+interpolate_rbf()
+Required Structs:
+rustNumericalIntegrator
+RootFinder
+ODESolver
+PDESolver
+Optimizer
+InterpolationMethod
+
+14. src/math/types.rs (NEW)
+Purpose: Mathematical type system
+Required Types:
+rustMathValue {
+  Real(f64),
+  Complex(Complex64),
+  Integer(i64),
+  Rational(i64, i64),
+  Vector(Vec<f64>),
+  Matrix(Vec<Vec<f64>>),
+  Symbolic(Expression),
+}
+
+Complex64 {
+  real: f64,
+  imag: f64,
+}
+
+Interval {
+  left: Bound,
+  right: Bound,
+  left_inclusive: bool,
+  right_inclusive: bool,
+}
+
+Domain {
+  variables: Vec<String>,
+  constraints: Vec<Constraint>,
+  space_type: SpaceType,
+}
+
+Range {
+  bounds: Vec<Interval>,
+}
+
+15. src/math/functions.rs (NEW)
+Purpose: Built-in mathematical functions
+Required Functions:
+rust// Elementary functions
+sin, cos, tan, asin, acos, atan, atan2
+sinh, cosh, tanh, asinh, acosh, atanh
+exp, ln, log, log10, log2
+sqrt, cbrt, pow, abs, sign
+
+// Special functions
+gamma, beta, erf, erfc
+bessel_j, bessel_y, bessel_i, bessel_k
+zeta, digamma, polygamma
+elliptic_k, elliptic_e
+
+// Number theory
+factorial, binomial, gcd, lcm
+is_prime, prime_factors
+
+// Combinatorics
+permutations, combinations
+Function Registry:
+rustFunctionRegistry {
+  functions: HashMap<String, MathFunction>,
+  derivatives: HashMap<String, DerivativeRule>,
+  integrals: HashMap<String, IntegralRule>,
+}
+
+16. src/math/operators.rs (NEW)
+Purpose: Mathematical operators and operations
+Required Operators:
+rust// Calculus
+Derivative
+PartialDerivative
+Gradient
+Divergence
+Curl
+Laplacian
+Integral
+LineIntegral
+SurfaceIntegral
+VolumeIntegral
+
+// Vector/Matrix
+DotProduct
+CrossProduct
+MatrixMultiply
+Transpose
+Inverse
+Determinant
+Trace
+Eigendecomposition
+
+// Complex
+ComplexConjugate
+ComplexMagnitude
+ComplexArgument
+
+// Set operations
+Union
+Intersection
+Difference
+Complement
+
+17. src/math/domain.rs (NEW)
+Purpose: Domain and range management
+Required Functions:
+rustcheck_point_in_domain(point: &[f64], domain: &Domain) -> bool
+sample_domain(domain: &Domain, num_points: usize) -> Vec<Vec<f64>>
+find_domain_boundary(domain: &Domain) -> Boundary
+intersect_domains(d1: &Domain, d2: &Domain) -> Option<Domain>
+transform_domain(domain: &Domain, transform: &Transform) -> Domain
+Required Structs:
+rustDomainConstraint
+BoundaryCondition
+RegularGrid
+AdaptiveGrid
+
+18. src/visualization/mod.rs (NEW)
+Purpose: Mathematical visualization
+Required Modules:
+rustpub mod function_plotter;
+pub mod surface_renderer;
+pub mod field_visualizer;
+pub mod curve_renderer;
+pub mod complex_visualizer;
+pub mod annotation;
+pub mod color_schemes;
+pub mod sampling;
+
+19. src/visualization/function_plotter.rs (NEW)
+Purpose: Plot mathematical functions
+Required Functions:
+rustplot_2d_function(f: &Expression, domain: Interval, resolution: usize) -> Plot2D
+plot_3d_surface(f: &Expression, domain: (Interval, Interval), resolution: (usize, usize)) -> Surface3D
+plot_parametric_curve_2d(x: &Expression, y: &Expression, t_domain: Interval) -> Curve2D
+plot_parametric_curve_3d(x: &Expression, y: &Expression, z: &Expression, t_domain: Interval) -> Curve3D
+plot_parametric_surface(x, y, z: &Expression, uv_domain: (Interval, Interval)) -> Surface3D
+plot_implicit_2d(f: &Expression, domain: (Interval, Interval)) -> ImplicitCurve
+plot_implicit_3d(f: &Expression, level: f64, domain: (Interval, Interval, Interval)) -> ImplicitSurface
+plot_polar(r: &Expression, theta_domain: Interval) -> PolarPlot
+Required Structs:
+rustPlot2D {
+  points: Vec<(f64, f64)>,
+  style: PlotStyle,
+  labels: Labels,
+  grid: GridOptions,
+}
+
+Surface3D {
+  vertices: Vec<Vec3>,
+  normals: Vec<Vec3>,
+  triangles: Vec<Triangle>,
+  colors: Option<Vec<Color>>,
+}
+
+20. src/visualization/field_visualizer.rs (NEW)
+Purpose: Visualize vector and scalar fields
+Required Functions:
+rustvisualize_vector_field_2d(field: &VectorField, domain: Domain, sampling: SamplingStrategy) -> VectorFieldViz
+visualize_vector_field_3d(field: &VectorField, domain: Domain, sampling: SamplingStrategy) -> VectorFieldViz
+visualize_scalar_field_2d(field: &ScalarField, domain: Domain) -> ScalarFieldViz
+visualize_scalar_field_3d(field: &ScalarField, domain: Domain) -> ScalarFieldViz
+compute_streamlines(field: &VectorField, seed_points: Vec<Point>) -> Vec<Curve>
+compute_field_lines(field: &VectorField, seed_points: Vec<Point>) -> Vec<Curve>
+compute_contour_lines(field: &ScalarField, levels: Vec<f64>) -> Vec<Curve>
+compute_isosurfaces(field: &ScalarField, levels: Vec<f64>) -> Vec<Surface>
+Visualization Styles:
+rustVectorFieldStyle {
+  Arrow,
+  Streamline,
+  FieldLine,
+  LIC, // Line Integral Convolution
+}
+
+ScalarFieldStyle {
+  ColorMap,
+  ContourLines,
+  Isosurface,
+  HeightMap,
+}
+
+21. src/visualization/complex_visualizer.rs (NEW)
+Purpose: Complex function visualization
+Required Functions:
+rustdomain_coloring(f: &ComplexFunction, domain: ComplexDomain) -> ColorMap
+visualize_riemann_surface(f: &ComplexFunction) -> Surface3D
+plot_conformal_mapping(f: &ComplexFunction, grid: ComplexGrid) -> MappedGrid
+visualize_complex_phase(f: &ComplexFunction, domain: ComplexDomain) -> PhasePortrait
+plot_complex_magnitude(f: &ComplexFunction, domain: ComplexDomain) -> SurfacePlot
+Domain Coloring Scheme:
+rustDomainColoringScheme {
+  hue_represents: PhaseAngle,
+  brightness_represents: Magnitude,
+  enhanced_features: Vec<FeatureHighlight>,
+}
+
+22. `src/visualization/Continue4:27 PMsampling.rs` (NEW)
+Purpose: Intelligent sampling strategies
+Required Functions:
+rustuniform_sampling_1d(domain: Interval, num_points: usize) -> Vec<f64>
+uniform_sampling_2d(domain: (Interval, Interval), resolution: (usize, usize)) -> Grid2D
+adaptive_sampling_1d(f: &Expression, domain: Interval, tolerance: f64) -> Vec<f64>
+adaptive_sampling_2d(f: &Expression, domain: (Interval, Interval), tolerance: f64) -> AdaptiveGrid
+curvature_based_sampling(curve: &Curve) -> Vec<f64>
+feature_preserving_sampling(surface: &Surface) -> AdaptiveMesh
+importance_sampling(field: &Field, importance_function: &Expression) -> Vec<Point>
+Sampling Strategies:
+rustSamplingStrategy {
+  Uniform,
+  Adaptive,
+  CurvatureBased,
+  FeaturePreserving,
+  Importance,
+  MonteCarlo,
+}
+
+23. src/visualization/annotation.rs (NEW)
+Purpose: Mathematical annotations and labels
+Required Functions:
+rustadd_tangent_line(curve: &Curve, point: f64) -> Line
+add_normal_vector(surface: &Surface, point: (f64, f64)) -> Vector
+add_critical_point_marker(f: &Expression, point: f64) -> Marker
+add_asymptote(f: &Expression, asymptote: Asymptote) -> Line
+add_latex_label(text: &str, position: Point) -> Label
+add_dimension_line(p1: Point, p2: Point, offset: f64) -> DimensionLine
+add_curvature_indicator(curve: &Curve, point: f64) -> CurvatureCircle
+Annotation Types:
+rustAnnotation {
+  TangentLine,
+  NormalVector,
+  CriticalPoint,
+  Inflection,
+  Asymptote,
+  Extremum,
+  Discontinuity,
+  Singularity,
+  LatexLabel,
+  Arrow,
+  DimensionLine,
+}
+
+24. src/modules/calculus.rs (NEW)
+Purpose: Calculus-specific functionality
+Required Modules:
+rustpub mod limits;
+pub mod derivatives;
+pub mod integrals;
+pub mod series;
+pub mod multivariable;
+pub mod vector_calculus;
+Key Functions:
+rust// Single-variable calculus
+compute_limit(f: &Expression, var: &str, approach: f64, direction: Direction) -> Option<f64>
+compute_derivative(f: &Expression, var: &str, order: usize) -> Expression
+compute_integral(f: &Expression, var: &str, bounds: Bounds) -> Result<f64>
+visualize_riemann_sum(f: &Expression, bounds: Bounds, partitions: usize, method: RiemannMethod) -> Visualization
+
+// Multivariable calculus
+compute_partial_derivative(f: &Expression, var: &str) -> Expression
+compute_gradient(f: &Expression, vars: &[String]) -> VectorField
+compute_divergence(field: &VectorField) -> ScalarField
+compute_curl(field: &VectorField) -> VectorField
+compute_directional_derivative(f: &Expression, point: Point, direction: Vector) -> f64
+find_critical_points(f: &Expression, vars: &[String]) -> Vec<Point>
+classify_critical_point(f: &Expression, point: Point) -> CriticalPointType
+
+// Series
+taylor_series(f: &Expression, var: &str, center: f64, order: usize) -> Expression
+fourier_series(f: &Expression, period: f64, n_terms: usize) -> Expression
+test_series_convergence(series: &Series) -> ConvergenceResult
+
+25. src/modules/linear_algebra.rs (NEW)
+Purpose: Linear algebra module
+Required Functions:
+rust// Matrix operations
+create_matrix(rows: usize, cols: usize, elements: Vec<f64>) -> Matrix
+matrix_add(a: &Matrix, b: &Matrix) -> Matrix
+matrix_multiply(a: &Matrix, b: &Matrix) -> Matrix
+matrix_transpose(m: &Matrix) -> Matrix
+matrix_inverse(m: &Matrix) -> Option<Matrix>
+matrix_determinant(m: &Matrix) -> f64
+matrix_rank(m: &Matrix) -> usize
+matrix_trace(m: &Matrix) -> f64
+
+// Decompositions
+lu_decomposition(m: &Matrix) -> (Matrix, Matrix)
+qr_decomposition(m: &Matrix) -> (Matrix, Matrix)
+svd(m: &Matrix) -> (Matrix, Matrix, Matrix)
+eigendecomposition(m: &Matrix) -> (Vec<f64>, Vec<Vector>)
+cholesky_decomposition(m: &Matrix) -> Option<Matrix>
+
+// Linear systems
+solve_linear_system(a: &Matrix, b: &Vector) -> Option<Vector>
+least_squares_solution(a: &Matrix, b: &Vector) -> Vector
+
+// Vector spaces
+compute_basis(vectors: Vec<Vector>) -> Vec<Vector>
+gram_schmidt(vectors: Vec<Vector>) -> Vec<Vector>
+check_linear_independence(vectors: Vec<Vector>) -> bool
+compute_span_dimension(vectors: Vec<Vector>) -> usize
+
+// Transformations
+create_rotation_matrix(angle: f64, axis: Option<Vector>) -> Matrix
+create_scaling_matrix(factors: Vec<f64>) -> Matrix
+create_shear_matrix(direction: Vector, magnitude: f64) -> Matrix
+create_projection_matrix(onto: Vector) -> Matrix
+apply_transformation(m: &Matrix, point: Point) -> Point
+
+// Visualization
+visualize_transformation(m: &Matrix, grid: Grid) -> Animation
+visualize_eigenspace(m: &Matrix) -> Visualization
+visualize_matrix_as_grid_transformation(m: &Matrix) -> Animation
+Required Structs:
+rustMatrix {
+  rows: usize,
+  cols: usize,
+  data: Vec<f64>,
+}
+
+Vector {
+  dimension: usize,
+  components: Vec<f64>,
+}
+
+LinearTransformation {
+  matrix: Matrix,
+  domain_dimension: usize,
+  codomain_dimension: usize,
+}
+
+26. src/modules/differential_equations.rs (NEW)
+Purpose: Differential equation solving and visualization
+Required Functions:
+rust// ODE solving
+solve_ode_ivp(equation: &ODE, initial_conditions: Vec<f64>, t_span: (f64, f64)) -> Solution
+generate_direction_field(ode: &ODE, domain: Domain) -> DirectionField
+generate_phase_portrait(ode_system: &ODESystem, domain: Domain) -> PhasePortrait
+find_equilibrium_points(ode_system: &ODESystem) -> Vec<Point>
+classify_equilibrium(ode_system: &ODESystem, point: Point) -> EquilibriumType
+compute_nullclines(ode_system: &ODESystem) -> Vec<Curve>
+compute_trajectory(ode_system: &ODESystem, initial_point: Point, t_span: (f64, f64)) -> Trajectory
+
+// PDE solving
+solve_pde_heat_equation(initial_condition: &Function, boundary_conditions: &[BC], t_span: (f64, f64)) -> Solution
+solve_pde_wave_equation(initial_position: &Function, initial_velocity: &Function, boundary_conditions: &[BC]) -> Solution
+solve_pde_laplace_equation(boundary_conditions: &[BC], domain: Domain) -> Solution
+solve_pde_finite_difference(pde: &PDE, initial_conditions: &IC, boundary_conditions: &[BC]) -> Solution
+
+// Stability analysis
+compute_stability_matrix(ode_system: &ODESystem, equilibrium: Point) -> Matrix
+analyze_stability(stability_matrix: &Matrix) -> StabilityType
+compute_lyapunov_function(ode_system: &ODESystem) -> Option<Function>
+generate_bifurcation_diagram(ode_with_parameter: &ParametricODE, parameter_range: Interval) -> BifurcationDiagram
+
+// Numerical methods comparison
+compare_ode_methods(ode: &ODE, methods: Vec<ODEMethod>, initial_conditions: Vec<f64>) -> Comparison
+Required Structs:
+rustODE {
+  order: usize,
+  equation: Expression,
+  dependent_var: String,
+  independent_var: String,
+}
+
+ODESystem {
+  equations: Vec<Expression>,
+  variables: Vec<String>,
+  independent_var: String,
+}
+
+PDE {
+  equation: Expression,
+  dependent_var: String,
+  independent_vars: Vec<String>,
+  order: (usize, usize), // max derivative orders
+}
+
+Solution {
+  time_points: Vec<f64>,
+  values: Vec<Vec<f64>>,
+  method_used: String,
+  error_estimate: Option<Vec<f64>>,
+}
+
+DirectionField {
+  points: Vec<Point>,
+  directions: Vec<Vector>,
+}
+
+PhasePortrait {
+  trajectories: Vec<Trajectory>,
+  equilibrium_points: Vec<Point>,
+  nullclines: Vec<Curve>,
+}
+
+27. src/modules/complex_analysis.rs (NEW)
+Purpose: Complex analysis functionality
+Required Functions:
+rust// Complex functions
+evaluate_complex_function(f: &ComplexFunction, z: Complex64) -> Complex64
+complex_derivative(f: &ComplexFunction, z: Complex64) -> Complex64
+is_analytic(f: &ComplexFunction, region: ComplexDomain) -> bool
+find_singularities(f: &ComplexFunction) -> Vec<Singularity>
+compute_residue(f: &ComplexFunction, singularity: Complex64) -> Complex64
+
+// Contour integration
+integrate_contour(f: &ComplexFunction, contour: &Contour) -> Complex64
+apply_residue_theorem(f: &ComplexFunction, contour: &Contour, singularities: Vec<Complex64>) -> Complex64
+
+// Conformal mappings
+compute_conformal_map(f: &ComplexFunction, domain: ComplexDomain) -> ConformMappedRegion
+visualize_conformal_grid(f: &ComplexFunction, grid: ComplexGrid) -> MappedGrid
+mobius_transformation(a: Complex64, b: Complex64, c: Complex64, d: Complex64) -> ComplexFunction
+
+// Riemann surfaces
+construct_riemann_surface(f: &ComplexFunction) -> RiemannSurface
+visualize_branch_cuts(f: &ComplexFunction) -> Visualization
+
+// Series
+laurent_series(f: &ComplexFunction, center: Complex64, region: AnnularRegion) -> Series
+power_series(f: &ComplexFunction, center: Complex64, radius: f64) -> Series
+Required Structs:
+rustComplexFunction {
+  expression: Expression,
+  branch_cuts: Vec<BranchCut>,
+  singularities: Vec<Singularity>,
+}
+
+ComplexDomain {
+  region_type: RegionType, // Disk, Half-plane, Annulus, Custom
+  bounds: ComplexBounds,
+}
+
+Contour {
+  path: ParametricCurve,
+  orientation: Orientation,
+}
+
+RiemannSurface {
+  sheets: usize,
+  branch_points: Vec<Complex64>,
+  branch_cuts: Vec<BranchCut>,
+  topology: Topology,
+}
+
+28. src/modules/geometry_topology.rs (NEW)
+Purpose: Geometry and topology functionality
+Required Functions:
+rust// Differential geometry
+compute_curvature_curve(curve: &Curve, t: f64) -> f64
+compute_torsion(curve: &SpaceCurve, t: f64) -> f64
+compute_gaussian_curvature(surface: &Surface, point: (f64, f64)) -> f64
+compute_mean_curvature(surface: &Surface, point: (f64, f64)) -> f64
+compute_geodesic(surface: &Surface, start: Point, end: Point) -> Curve
+compute_parallel_transport(surface: &Surface, vector: Vector, along: Curve) -> Vector
+
+// Topology
+compute_euler_characteristic(surface: &Surface) -> i32
+compute_genus(surface: &Surface) -> usize
+check_orientability(surface: &Surface) -> bool
+compute_fundamental_group(space: &TopologicalSpace) -> Group
+classify_surface(surface: &Surface) -> SurfaceClassification
+
+// Geometric objects
+create_torus(major_radius: f64, minor_radius: f64) -> Surface
+create_klein_bottle() -> Surface
+create_mobius_strip(width: f64, radius: f64) -> Surface
+create_minimal_surface(boundary: Curve) -> Surface
+
+// Transformations
+isometry(space: &MetricSpace, transformation: Transform) -> bool
+homeomorphism_check(space1: &TopologicalSpace, space2: &TopologicalSpace) -> bool
+homotopy(path1: &Curve, path2: &Curve) -> Option<Homotopy>
+
+29. src/educational/mod.rs (NEW)
+Purpose: Educational features
+Required Modules:
+rustpub mod guided_exploration;
+pub mod step_by_step;
+pub mod interactive_problems;
+pub mod hints;
+pub mod assessment;
+pub mod concept_map;
+
+30. src/educational/step_by_step.rs (NEW)
+Purpose: Step-by-step solutions and explanations
+Required Functions:
+rustsolve_step_by_step(problem: &MathProblem) -> Vec<Step>
+explain_derivative_calculation(f: &Expression, var: &str) -> StepByStepSolution
+explain_integration(f: &Expression, var: &str) -> StepByStepSolution
+explain_limit_evaluation(f: &Expression, var: &str, approach: f64) -> StepByStepSolution
+explain_series_expansion(f: &Expression, center: f64, order: usize) -> StepByStepSolution
+explain_matrix_operation(operation: MatrixOperation, matrices: Vec<Matrix>) -> StepByStepSolution
+Required Structs:
+rustStep {
+  description: String,
+  latex_expression: String,
+  explanation: String,
+  visualization: Option<Visualization>,
+  hints: Vec<String>,
+}
+
+StepByStepSolution {
+  problem: String,
+  steps: Vec<Step>,
+  final_answer: String,
+  verification: Option<Verification>,
+}
+
+31. src/educational/interactive_problems.rs (NEW)
+Purpose: Interactive problem generation and checking
+Required Functions:
+rustgenerate_problem(topic: Topic, difficulty: Difficulty) -> Problem
+check_answer(problem: &Problem, user_answer: &Answer) -> AnswerFeedback
+provide_hint(problem: &Problem, step: usize) -> Hint
+generate_similar_problem(problem: &Problem) -> Problem
+adaptive_difficulty(user_history: &UserHistory) -> Difficulty
+Required Structs:
+rustProblem {
+  id: String,
+  topic: Topic,
+  difficulty: Difficulty,
+  statement: String,
+  constraints: Vec<Constraint>,
+  expected_answer_type: AnswerType,
+  solution: Solution,
+  hints: Vec<Hint>,
+}
+
+AnswerFeedback {
+  correct: bool,
+  partial_credit: Option<f64>,
+  explanation: String,
+  common_mistakes: Vec<String>,
+  suggestions: Vec<String>,
+}
+
+32. src/numerical/integration.rs (NEW)
+Purpose: Numerical integration methods
+Required Functions:
+rusttrapezoid_rule(f: &Expression, a: f64, b: f64, n: usize) -> f64
+simpson_rule(f: &Expression, a: f64, b: f64, n: usize) -> f64
+romberg_integration(f: &Expression, a: f64, b: f64, tolerance: f64) -> f64
+adaptive_quadrature(f: &Expression, a: f64, b: f64, tolerance: f64) -> IntegrationResult
+gauss_quadrature(f: &Expression, a: f64, b: f64, n: usize) -> f64
+monte_carlo_integration(f: &Expression, domain: Domain, num_samples: usize) -> MCIntegrationResult
+integrate_improper(f: &Expression, a: Bound, b: Bound, tolerance: f64) -> Result<f64>
+double_integral(f: &Expression, x_bounds: Bounds, y_bounds: Bounds) -> f64
+triple_integral(f: &Expression, x_bounds: Bounds, y_bounds: Bounds, z_bounds: Bounds) -> f64
+Required Structs:
+rustIntegrationResult {
+  value: f64,
+  error_estimate: f64,
+  function_evaluations: usize,
+  method_used: String,
+}
+
+MCIntegrationResult {
+  value: f64,
+  standard_error: f64,
+  samples: usize,
+  variance: f64,
+}
+
+33. src/symbolic/differentiation.rs (NEW)
+Purpose: Symbolic differentiation
+Required Functions:
+rustdifferentiate_basic(expr: &Expression, var: &str) -> Expression
+apply_chain_rule(expr: &Expression, var: &str) -> Expression
+apply_product_rule(expr: &Expression, var: &str) -> Expression
+apply_quotient_rule(expr: &Expression, var: &str) -> Expression
+partial_derivative(expr: &Expression, var: &str) -> Expression
+higher_order_derivative(expr: &Expression, var: &str, order: usize) -> Expression
+implicit_differentiation(equation: &Expression, dependent: &str, independent: &str) -> Expression
+Derivative Rules Registry:
+rustDerivativeRules {
+  basic_rules: HashMap<String, DerivativeRule>,
+  chain_rule_handler: ChainRuleHandler,
+  product_rule_handler: ProductRuleHandler,
+  quotient_rule_handler: QuotientRuleHandler,
+}
+
+34. src/symbolic/integration.rs (NEW)
+Purpose: Symbolic integration
+Required Functions:
+rustintegrate_basic(expr: &Expression, var: &str) -> Option<Expression>
+integrate_by_parts(expr: &Expression, var: &str) -> Option<Expression>
+integrate_by_substitution(expr: &Expression, var: &str, substitution: &Expression) -> Option<Expression>
+integrate_partial_fractions(expr: &Expression, var: &str) -> Option<Expression>
+integrate_trigonometric(expr: &Expression, var: &str) -> Option<Expression>
+suggest_integration_method(expr: &Expression, var: &str) -> IntegrationMethod
+table_lookup(expr: &Expression, var: &str) -> Option<Expression>
+Integration Methods:
+rustIntegrationMethod {
+  ByParts,
+  Substitution(Expression),
+  PartialFractions,
+  TrigonometricSubstitution,
+  TableLookup,
+  Numerical,
+}
+
+RENDERING AND VISUALIZATION FILES
+35. src/renderer/mod.rs
+Purpose: Main rendering coordination
+Changes Required:
+
+Add mathematical object rendering dispatch:
+
+rustrender_math_object(obj: &MathObject, view: &View) -> RenderOutput
+render_function_plot(plot: &FunctionPlot) -> Mesh
+render_vector_field(field: &VectorField) -> VectorFieldMesh
+render_scalar_field(field: &ScalarField) -> ColorMappedMesh
+render_complex_function(f: &ComplexFunction) -> DomainColoredMesh
+
+Add coordinate system rendering:
+
+rustrender_axes(coord_system: &CoordinateSystem, bounds: Bounds) -> AxisMesh
+render_grid(coord_system: &CoordinateSystem, spacing: f64) -> GridMesh
+render_coordinate_labels(coord_system: &CoordinateSystem) -> LabelMesh
+
+Add annotation rendering:
+
+rustrender_latex(text: &str, position: Point3D) -> TextMesh
+render_arrow(start: Point3D, end: Point3D, style: ArrowStyle) -> ArrowMesh
+render_dimension_line(p1: Point3D, p2: Point3D) -> DimensionLineMesh
+
+36. src/renderer/mesh_generator.rs
+Purpose: Generate meshes from mathematical objects
+Changes Required:
+
+Add function mesh generation:
+
+rustgenerate_function_mesh_2d(f: &Expression, domain: Interval, resolution: usize) -> Mesh2D
+generate_surface_mesh(f: &Expression, domain: (Interval, Interval), resolution: (usize, usize)) -> Mesh3D
+generate_parametric_curve_mesh(curve: &ParametricCurve, resolution: usize) -> CurveMesh
+generate_parametric_surface_mesh(surface: &ParametricSurface, resolution: (usize, usize)) -> Mesh3D
+generate_implicit_surface_mesh(f: &Expression, level: f64, domain: Domain, resolution: usize) -> Mesh3D
+
+Add adaptive mesh generation:
+
+rustgenerate_adaptive_mesh(f: &Expression, domain: Domain, tolerance: f64) -> AdaptiveMesh
+refine_mesh_by_curvature(mesh: &Mesh, curvature_threshold: f64) -> RefinedMesh
+refine_mesh_by_error(mesh: &Mesh, error_function: &Expression) -> RefinedMesh
+
+Add vector field mesh generation:
+
+rustgenerate_arrow_field(field: &VectorField, sampling: SamplingStrategy) -> ArrowMesh
+generate_streamlines(field: &VectorField, seed_points: Vec<Point>) -> StreamlineMesh
+generate_field_lines(field: &VectorField, seed_points: Vec<Point>) -> FieldLineMesh
+
+37. src/renderer/shaders.rs
+Purpose: Shader programs
+Changes Required:
+
+Add mathematical function evaluation shaders:
+
+rustfunction_evaluation_vertex_shader
+function_evaluation_fragment_shader
+domain_coloring_fragment_shader
+vector_field_geometry_shader
+scalar_field_fragment_shader
+
+Add mathematical visualization shaders:
+
+rustcontour_line_shader
+isosurface_shader
+curvature_visualization_shader
+gradient_visualization_shader
+
+Add helper functions in shaders:
+
+rust// In GLSL/WGSL
+evaluate_expression(uniforms, position)
+compute_gradient(function, position)
+compute_normal(surface, uv)
+domain_color_map(complex_value)
+
+TESTING FILES
+38. tests/math_correctness.rs (NEW)
+Purpose: Test mathematical correctness
+Test Categories:
+rust#[test]
+fn test_derivative_accuracy()
+fn test_integral_accuracy()
+fn test_limit_computation()
+fn test_series_convergence()
+fn test_numerical_stability()
+fn test_root_finding_accuracy()
+fn test_ode_solver_accuracy()
+fn test_matrix_operations()
+fn test_eigenvalue_computation()
+fn test_special_functions()
+fn test_complex_functions()
+fn test_symbolic_simplification()
+
+39. tests/visualization_tests.rs (NEW)
+Purpose: Test visualization correctness
+Test Categories:
+rust#[test]
+fn test_function_plotting()
+fn test_surface_generation()
+fn test_vector_field_visualization()
+fn test_domain_coloring()
+fn test_adaptive_sampling()
+fn test_mesh_quality()
+fn test_annotation_placement()
+fn test_coordinate_transformation()
+
+40. tests/educational_tests.rs (NEW)
+Purpose: Test educational features
+Test Categories:
+rust#[test]
+fn test_step_by_step_solutions()
+fn test_problem_generation()
+fn test_answer_checking()
+fn test_hint_system()
+fn test_interactive_exploration()
+
+CONFIGURATION AND DATA FILES
+41. config/mathematical_functions.toml (NEW)
+Purpose: Define built-in mathematical functions
+Contents:
+toml[functions.elementary]
+sin = { derivative = "cos(x)", integral = "-cos(x)", domain = "R", range = "[-1,1]" }
+cos = { derivative = "-sin(x)", integral = "sin(x)", domain = "R", range = "[-1,1]" }
+exp = { derivative = "exp(x)", integral = "exp(x)", domain = "R", range = "(0,∞)" }
+ln = { derivative = "1/x", integral = "x*ln(x)-x", domain = "(0,∞)", range = "R" }
+
+[functions.special]
+gamma = { implementation = "numerical", domain = "R\\{0,-1,-2,...}" }
+bessel_j = { order_parameter = "n", implementation = "numerical" }
+
+[constants]
+pi = 3.14159265358979323846
+e = 2.71828182845904523536
+golden_ratio = 1.61803398874989484820
+
+42. config/numerical_methods.toml (NEW)
+Purpose: Configure numerical method parameters
+Contents:
+toml[integration]
+default_method = "adaptive_simpson"
+default_tolerance = 1e-8
+max_iterations = 10000
+
+[ode_solving]
+default_method = "rk45"
+default_step_size = 0.01
+adaptive = true
+tolerance = 1e-6
+
+[root_finding]
+default_method = "newton_raphson"
+max_iterations = 100
+tolerance = 1e-10
+
+[optimization]
+default_method = "gradient_descent"
+learning_rate = 0.01
+max_iterations = 1000
+
+43. config/visualization_defaults.toml (NEW)
+Purpose: Default visualization settings
+Contents:
+toml[plotting]
+default_resolution_2d = 1000
+default_resolution_3d = [100, 100]
+adaptive_sampling = true
+adaptive_tolerance = 0.01
+
+[colors]
+default_function_color = "#2196F3"
+default_grid_color = "#CCCCCC"
+default_axis_color = "#000000"
+
+[vector_fields]
+arrow_density = 20
+arrow_scale = 1.0
+streamline_integration_step = 0.01
+
+[scalar_fields]
+colormap = "viridis"
+num_contour_levels = 10
+isosurface_resolution = 100
+```
+
+---
+
+### 44. `examples/calculus_examples.dsl` (NEW)
+**Purpose:** Example DSL files for calculus
+
+**Contents:**
+```
+// Single-variable calculus
+function f(x) = sin(x) * exp(-x/10)
+  domain: x in [0, 4*pi]
+  
+visualize {
+  plot: f(x)
+  tangent_line at: x = pi
+  show_derivative: true
+  show_integral: true
+  riemann_sum: {
+    method: midpoint
+    partitions: 20
+  }
+}
+
+// Multivariable calculus
+function g(x,y) = x^2 - y^2
+  domain: x in [-2, 2], y in [-2, 2]
+  
+visualize {
+  surface: g(x,y)
+  gradient_field: true
+  critical_points: true
+  level_curves: [-4, -2, 0, 2, 4]
+}
+```
+
+---
+
+### 45. `examples/linear_algebra_examples.dsl` (NEW)
+**Purpose:** Linear algebra examples
+
+**Contents:**
+```
+matrix A = [
+  [2, 1],
+  [1, 3]
+]
+
+transformation T = linear_transform(A)
+
+visualize {
+  original_grid: unit_square
+  transformed_grid: apply(T, unit_square)
+  show_eigenvectors: true
+  show_eigenvalues: true
+  animate_transformation: {
+    from: identity
+    to: T
+    duration: 2s
+  }
+}
+```
+
+---
+
+### 46. `examples/differential_equations.dsl` (NEW)
+**Purpose:** Differential equation examples
+
+**Contents:**
+```
+// Simple harmonic oscillator
+ode {
+  equation: d²x/dt² + ω²*x = 0
+  initial_conditions: [x(0) = 1, dx/dt(0) = 0]
+  parameters: ω = 2*pi
+  time_span: [0, 4]
+}
+
+visualize {
+  solution_curve: true
+  phase_portrait: true
+  direction_field: true
+}
+
+// Lotka-Volterra (predator-prey)
+ode_system {
+  equations: [
+    dx/dt = αx - βxy,
+    dy/dt = δxy - γy
+  ]
+  initial_conditions: [x(0) = 10, y(0) = 5]
+  parameters: [α = 1.5, β = 0.1, δ = 0.075, γ = 1.5]
+  time_span: [0, 30]
+}
+
+visualize {
+  phase_portrait: true
+  trajectories: multiple
+  equilibrium_points: true
+  nullclines: true
+}
+
+DOCUMENTATION FILES
+47. docs/mathematical_dsl_reference.md (NEW)
+Purpose: Complete DSL reference for mathematical objects
+Contents:
+
+Function definition syntax
+Curve and surface definitions
+Field definitions
+Domain and range specifications
+Visualization options
+Animation controls
+Examples for each feature
+
+
+48. docs/numerical_methods.md (NEW)
+Purpose: Document numerical methods used
+Contents:
+
+Integration methods and accuracy
+ODE/PDE solvers
+Root finding algorithms
+Optimization methods
+Error estimation techniques
+Convergence criteria
+When to use each method
+
+
+49. docs/api_reference.md (NEW)
+Purpose: API documentation for programmers
+Contents:
+
+Mathematical expression API
+Symbolic computation API
+Numerical methods API
+Visualization API
+Module-specific APIs
+Code examples
+
+
+50. docs/educational_guide.md (NEW)
+Purpose: Guide for educators using the system
+Contents:
+
+Creating interactive lessons
+Problem generation
+Step-by-step solutions
+Assessment features
+Best practices for mathematical visualization
+Example curricula
+
+
+UTILITY AND HELPER FILES
+51. src/utils/latex_renderer.rs (NEW)
+Purpose: Render LaTeX mathematical notation
+Required Functions:
+rustlatex_to_mesh(latex: &str, position: Point3D) -> TextMesh
+expression_to_latex(expr: &Expression) -> String
+latex_to_svg(latex: &str) -> SVG
+format_number_latex(num: f64, precision: usize) -> String
+
+52. src/utils/color_maps.rs (NEW)
+Purpose: Color mapping for scalar fields
+Required Functions:
+rustviridis(value: f64) -> Color
+plasma(value: f64) -> Color
+inferno(value: f64) -> Color
+custom_gradient(value: f64, colors: Vec<Color>) -> Color
+domain_coloring(complex_value: Complex64) -> Color
+
+53. src/utils/cache.rs (NEW)
+Purpose: Caching system for expensive computations
+Required Structs:
+rustFunctionCache
+DerivativeCache
+IntegralCache
+MeshCache
+EvaluationCache
+Required Functions:
+rustcache_function_value()
+cache_derivative()
+cache_integral_result()
+invalidate_cache()
+get_cache_statistics()
+
+BUILD AND DEPENDENCY CHANGES
+54. Cargo.toml
+Purpose: Rust dependencies
+Changes Required:
+
+Add mathematical computation crates:
+
+nalgebra - Linear algebra
+ndarray - N-dimensional arrays
+num-complex - Complex numbers
+
+
+Continue4:29 PM
+num-traits - Numeric traits
+
+approx - Floating point comparisons
+
+
+Add numerical methods crates:
+
+ode-solvers - ODE solving
+roots - Root finding
+optimize - Optimization algorithms
+quadrature - Numerical integration
+
+
+Add symbolic computation (if using existing):
+
+Consider CAS bindings or implement custom
+
+
+Add special functions:
+
+special - Special mathematical functions
+statrs - Statistical/probability functions
+
+
+Add plotting/visualization:
+
+plotters - 2D plotting
+meshopt - Mesh optimization
+
+
+Add text rendering:
+
+LaTeX rendering library
+Font rendering for mathematical notation
+
+
+
+
+55. build.rs
+Purpose: Build-time code generation
+Changes Required:
+
+Generate derivative rules lookup table
+Generate integration rules table
+Precompute special function values
+Build mathematical function registry
+Generate shader code from mathematical expressions
+
+
+SUMMARY OF MAJOR CHANGES
+Files Requiring Extensive Modification (20):
+
+src/lexer.rs - Add math tokens
+src/parser.rs - Add math expression parsing
+src/ast.rs - Add math AST nodes
+src/ir.rs - Extend IR for math objects
+src/semantic_analyzer.rs - Add math type system
+src/validator.rs - Add math validation
+src/compiler.rs - Add math optimization passes
+src/error.rs - Add math error types
+src/runtime.rs - Add math evaluation
+src/renderer/mod.rs - Add math rendering
+src/renderer/mesh_generator.rs - Math mesh generation
+src/renderer/shaders.rs - Math visualization shaders
+13-20. Various other renderer files
+
+New Files to Create (35+):
+
+10+ core mathematical computation files
+8+ visualization files
+6+ domain-specific module files
+5+ educational feature files
+5+ configuration files
+Multiple example and documentation files
+
+Total Estimated Changes:
+
+Modify: ~20 existing files
+Create: ~40+ new files
+New Directories: ~6 major directories
+Test Files: ~15+ comprehensive test files
+Documentation: ~10+ documentation files

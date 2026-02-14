@@ -4,9 +4,9 @@
 // Rejects invalid states
 // If constraints conflict, execution stops. No lying.
 
-use super::solver::{CorrectionDelta, CorrectionKind, CorrectableValue, SolverResult};
+use super::solver::{CorrectableValue, CorrectionDelta, CorrectionKind, SolverResult};
 use crate::error::{RuntimeError, RuntimeResult, StateError, StateErrorKind};
-use crate::state::{ObjectState, WorldState, Vector3, Quaternion};
+use crate::state::{ObjectState, Quaternion, Vector3, WorldState};
 
 /// Constraint enforcer
 pub struct ConstraintEnforcer {
@@ -48,13 +48,13 @@ impl ConstraintEnforcer {
 
         // Apply corrections to each object
         for (obj_id, corrections) in &result.corrections {
-            let object = state
-                .get_object_mut(obj_id)
-                .ok_or_else(|| RuntimeError::InvalidState(StateError {
+            let object = state.get_object_mut(obj_id).ok_or_else(|| {
+                RuntimeError::InvalidState(StateError {
                     kind: StateErrorKind::InvalidObject,
                     object_id: Some(obj_id.clone()),
                     details: "Object not found".to_string(),
-                }))?;
+                })
+            })?;
 
             // Apply each correction
             for correction in corrections {
@@ -69,13 +69,13 @@ impl ConstraintEnforcer {
 
         // Validate state if enabled
         if self.validate {
-            state
-                .validate()
-                .map_err(|e| RuntimeError::InvalidState(StateError {
+            state.validate().map_err(|e| {
+                RuntimeError::InvalidState(StateError {
                     kind: StateErrorKind::InvariantViolation,
                     object_id: None,
                     details: e,
-                }))?;
+                })
+            })?;
         }
 
         // Check for NaN propagation
@@ -97,7 +97,8 @@ impl ConstraintEnforcer {
     ) -> RuntimeResult<f64> {
         match (&correction.kind, &correction.value) {
             (CorrectionKind::Position, CorrectableValue::Vector3(delta)) => {
-                let magnitude = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
+                let magnitude =
+                    (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
                 object.position.x += delta[0] * self.damping;
                 object.position.y += delta[1] * self.damping;
                 object.position.z += delta[2] * self.damping;
@@ -105,8 +106,11 @@ impl ConstraintEnforcer {
             }
             (CorrectionKind::Orientation, CorrectableValue::Quaternion(delta)) => {
                 // Apply quaternion delta (simplified - would use proper quaternion math)
-                let magnitude = (delta[0] * delta[0] + delta[1] * delta[1] + 
-                               delta[2] * delta[2] + delta[3] * delta[3]).sqrt();
+                let magnitude = (delta[0] * delta[0]
+                    + delta[1] * delta[1]
+                    + delta[2] * delta[2]
+                    + delta[3] * delta[3])
+                    .sqrt();
                 object.orientation.w += delta[0] * self.damping;
                 object.orientation.x += delta[1] * self.damping;
                 object.orientation.y += delta[2] * self.damping;
@@ -115,7 +119,8 @@ impl ConstraintEnforcer {
                 Ok(magnitude)
             }
             (CorrectionKind::Scale, CorrectableValue::Vector3(delta)) => {
-                let magnitude = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
+                let magnitude =
+                    (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
                 object.scale.x += delta[0] * self.damping;
                 object.scale.y += delta[1] * self.damping;
                 object.scale.z += delta[2] * self.damping;

@@ -1,10 +1,9 @@
 /// Field validation pass.
 /// Validates field definitions and types.
-
 use crate::ast::*;
 use crate::errors::{DslError, ErrorCode, ErrorCollector};
-use std::path::PathBuf;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 pub struct FieldValidator {
     file: PathBuf,
@@ -57,8 +56,11 @@ impl FieldValidator {
                 if let Some(type_field) = field_def.get_field("type") {
                     self.errors.add(DslError::new(
                         ErrorCode::InvalidFieldType,
-                        format!("Invalid field type: '{}'. Valid types: {}", 
-                            field_type, valid_types.join(", ")),
+                        format!(
+                            "Invalid field type: '{}'. Valid types: {}",
+                            field_type,
+                            valid_types.join(", ")
+                        ),
                         type_field.span,
                         self.file.clone(),
                     ));

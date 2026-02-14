@@ -1,7 +1,6 @@
 /// Unit validation pass.
 /// Validates physical units and ensures consistency.
 /// Enforces unit system constraints (SI vs Imperial).
-
 use crate::ast::*;
 use crate::errors::{DslError, ErrorCode, ErrorCollector};
 use std::path::PathBuf;
@@ -94,7 +93,10 @@ impl UnitValidator {
                     self.errors.add(
                         DslError::new(
                             ErrorCode::InvalidMassValue,
-                            format!("Mass must be positive, found {} in entity '{}'", mass, entity_name),
+                            format!(
+                                "Mass must be positive, found {} in entity '{}'",
+                                mass, entity_name
+                            ),
                             *span,
                             self.file.clone(),
                         )
@@ -109,21 +111,33 @@ impl UnitValidator {
                             self.errors.add(
                                 DslError::new(
                                     ErrorCode::InvalidMassValue,
-                                    format!("Mass {} kg is extremely large in entity '{}'", mass, entity_name),
+                                    format!(
+                                        "Mass {} kg is extremely large in entity '{}'",
+                                        mass, entity_name
+                                    ),
                                     *span,
                                     self.file.clone(),
                                 )
-                                .with_help("Check if mass unit is correct (expecting kilograms in SI)".to_string()),
+                                .with_help(
+                                    "Check if mass unit is correct (expecting kilograms in SI)"
+                                        .to_string(),
+                                ),
                             );
                         } else if *mass < 1e-10 && *mass > 0.0 {
                             self.errors.add(
                                 DslError::new(
                                     ErrorCode::InvalidMassValue,
-                                    format!("Mass {} kg is extremely small in entity '{}'", mass, entity_name),
+                                    format!(
+                                        "Mass {} kg is extremely small in entity '{}'",
+                                        mass, entity_name
+                                    ),
                                     *span,
                                     self.file.clone(),
                                 )
-                                .with_help("Check if mass unit is correct (expecting kilograms in SI)".to_string()),
+                                .with_help(
+                                    "Check if mass unit is correct (expecting kilograms in SI)"
+                                        .to_string(),
+                                ),
                             );
                         }
                     }
@@ -132,21 +146,33 @@ impl UnitValidator {
                             self.errors.add(
                                 DslError::new(
                                     ErrorCode::InvalidMassValue,
-                                    format!("Mass {} lb is extremely large in entity '{}'", mass, entity_name),
+                                    format!(
+                                        "Mass {} lb is extremely large in entity '{}'",
+                                        mass, entity_name
+                                    ),
                                     *span,
                                     self.file.clone(),
                                 )
-                                .with_help("Check if mass unit is correct (expecting pounds in Imperial)".to_string()),
+                                .with_help(
+                                    "Check if mass unit is correct (expecting pounds in Imperial)"
+                                        .to_string(),
+                                ),
                             );
                         } else if *mass < 1e-10 && *mass > 0.0 {
                             self.errors.add(
                                 DslError::new(
                                     ErrorCode::InvalidMassValue,
-                                    format!("Mass {} lb is extremely small in entity '{}'", mass, entity_name),
+                                    format!(
+                                        "Mass {} lb is extremely small in entity '{}'",
+                                        mass, entity_name
+                                    ),
                                     *span,
                                     self.file.clone(),
                                 )
-                                .with_help("Check if mass unit is correct (expecting pounds in Imperial)".to_string()),
+                                .with_help(
+                                    "Check if mass unit is correct (expecting pounds in Imperial)"
+                                        .to_string(),
+                                ),
                             );
                         }
                     }
@@ -155,7 +181,12 @@ impl UnitValidator {
         }
     }
 
-    fn validate_reasonable_vector(&mut self, field_name: &str, component: &AstComponent, entity_name: &str) {
+    fn validate_reasonable_vector(
+        &mut self,
+        field_name: &str,
+        component: &AstComponent,
+        entity_name: &str,
+    ) {
         if let Some(field) = component.get_field(field_name) {
             if let AstValue::Vector(vec, span) = &field.value {
                 for &val in vec {
@@ -200,14 +231,12 @@ impl UnitValidator {
             if let Some(field) = motion.get_field("speed") {
                 if let AstValue::Number(speed, span) = &field.value {
                     if !speed.is_finite() {
-                        self.errors.add(
-                            DslError::new(
-                                ErrorCode::InvalidNumber,
-                                format!("Speed must be finite in motion '{}'", motion.name),
-                                *span,
-                                self.file.clone(),
-                            ),
-                        );
+                        self.errors.add(DslError::new(
+                            ErrorCode::InvalidNumber,
+                            format!("Speed must be finite in motion '{}'", motion.name),
+                            *span,
+                            self.file.clone(),
+                        ));
                     }
 
                     // For rotation, speed is in radians per second
@@ -268,7 +297,7 @@ impl UnitValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::SourceSpan;
+    use crate::{errors::SourceSpan, validator};
 
     #[test]
     fn test_unit_system_parsing() {
@@ -280,7 +309,7 @@ mod tests {
     #[test]
     fn test_degree_detection() {
         let span = SourceSpan::single_point(1, 1, 0);
-        
+
         // 180 degrees = π radians ≈ 3.14
         // If someone passes 180 (thinking it's radians), we should warn
         let large_angle = 180.0;
@@ -290,12 +319,12 @@ mod tests {
     #[test]
     fn test_mass_validation() {
         let validator = UnitValidator::new(PathBuf::from("test.dsl"), UnitSystem::SI);
-        
+
         // These would be validated in the actual validation pass
         let valid_mass = 10.0;
         let negative_mass = -5.0;
         let zero_mass = 0.0;
-        
+
         assert!(valid_mass > 0.0);
         assert!(negative_mass <= 0.0);
         assert!(zero_mass <= 0.0);

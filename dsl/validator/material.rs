@@ -1,6 +1,5 @@
 /// Material validation pass.
 /// Validates material properties based on domain.
-
 use crate::ast::*;
 use crate::errors::{DslError, ErrorCode, ErrorCollector};
 use std::path::PathBuf;
@@ -38,12 +37,15 @@ impl MaterialValidator {
     fn validate_physics_material(&mut self, material: &AstMaterial) {
         // Validate required physics properties
         let required_fields = ["density", "elasticity", "friction"];
-        
+
         for field_name in &required_fields {
             if !material.fields.iter().any(|f| f.name == *field_name) {
                 self.errors.add(DslError::new(
                     ErrorCode::MissingRequiredField,
-                    format!("Physics material '{}' missing required field '{}'", material.name, field_name),
+                    format!(
+                        "Physics material '{}' missing required field '{}'",
+                        material.name, field_name
+                    ),
                     material.span,
                     self.file.clone(),
                 ));
@@ -68,12 +70,15 @@ impl MaterialValidator {
     fn validate_chemistry_material(&mut self, material: &AstMaterial) {
         // Validate required chemistry properties
         let required_fields = ["molecular_weight", "state", "reactivity"];
-        
+
         for field_name in &required_fields {
             if !material.fields.iter().any(|f| f.name == *field_name) {
                 self.errors.add(DslError::new(
                     ErrorCode::MissingRequiredField,
-                    format!("Chemistry material '{}' missing required field '{}'", material.name, field_name),
+                    format!(
+                        "Chemistry material '{}' missing required field '{}'",
+                        material.name, field_name
+                    ),
                     material.span,
                     self.file.clone(),
                 ));
@@ -89,10 +94,7 @@ mod tests {
 
     #[test]
     fn test_validator_creation() {
-        let validator = MaterialValidator::new(
-            PathBuf::from("test.dsl"),
-            "physics".to_string()
-        );
+        let validator = MaterialValidator::new(PathBuf::from("test.dsl"), "physics".to_string());
         assert_eq!(validator.domain, "physics");
     }
 }

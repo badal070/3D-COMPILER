@@ -68,3 +68,50 @@ impl Ord for Time {
         self.partial_cmp(other).unwrap_or(Ordering::Equal)
     }
 }
+
+// Physics values
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Force(pub Vector3);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Energy(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Momentum(pub Vector3);
+
+// Chemistry values
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AtomicNumber(pub u8);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Electronegativity(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BondOrder(pub u8);
+
+// Robotics values
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JointPosition(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JointVelocity(pub f64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Torque(pub f64);
+
+// Easing functions
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EasingFunction {
+    Linear,
+    EaseInQuad,
+    EaseOutQuad,
+    EaseInOutQuad,
+    EaseInCubic,
+    EaseOutCubic,
+    EaseInOutCubic,
+    EaseInSine,
+    EaseOutSine,
+    EaseInOutSine,
+    Elastic,
+    Bounce,
+}

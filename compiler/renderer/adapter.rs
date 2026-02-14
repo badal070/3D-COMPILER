@@ -132,11 +132,8 @@ impl Adapter {
     ///
     /// Maintains numerical precision through quaternion math
     pub fn convert_transform(&self, transform: &Transform) -> RenderTransform {
-        let matrix = self.compose_matrix(
-            &transform.position,
-            &transform.rotation,
-            &transform.scale,
-        );
+        let matrix =
+            self.compose_matrix(&transform.position, &transform.rotation, &transform.scale);
 
         RenderTransform { matrix }
     }
@@ -181,7 +178,12 @@ impl Adapter {
     /// Compose 4x4 transformation matrix from TRS components
     ///
     /// Order: Scale -> Rotate -> Translate
-    fn compose_matrix(&self, position: &[f64; 3], rotation: &[f64; 4], scale: &[f64; 3]) -> [f32; 16] {
+    fn compose_matrix(
+        &self,
+        position: &[f64; 3],
+        rotation: &[f64; 4],
+        scale: &[f64; 3],
+    ) -> [f32; 16] {
         // Normalize quaternion
         let (x, y, z, w) = (rotation[0], rotation[1], rotation[2], rotation[3]);
         let mag = (x * x + y * y + z * z + w * w).sqrt();
@@ -298,9 +300,9 @@ mod tests {
 
         let material = MaterialProperties {
             color: [1.0, 1.0, 1.0, 1.0],
-            metallic: 2.0,  // Over range
+            metallic: 2.0,   // Over range
             roughness: -1.0, // Under range
-            opacity: 1.5,   // Over range
+            opacity: 1.5,    // Over range
             emissive: [0.0, 0.0, 0.0],
         };
 

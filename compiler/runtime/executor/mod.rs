@@ -1,12 +1,12 @@
 // runtime/executor/mod.rs
 // Executor subsystem - executes the execution plan
 
-pub mod step;
 pub mod stage_executor;
+pub mod step;
 pub mod watchdog;
 
+pub use stage_executor::{ExecutionStage, StageExecutor};
 pub use step::{ExecutionStep, StepResult};
-pub use stage_executor::{StageExecutor, ExecutionStage};
 pub use watchdog::Watchdog;
 
 use crate::error::RuntimeResult;

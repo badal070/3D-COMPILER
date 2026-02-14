@@ -3,11 +3,12 @@
 // Owns the execution loop, advances time, calls execution stages in order
 // Handles pause, reset, step
 // This file answers: "what happens next?"
-// No math here. Just control.
+// Math evaluation is isolated in RuntimeMathEngine and fed through state snapshots.
 
 use crate::constraint::ConstraintSystem;
 use crate::error::{RuntimeError, RuntimeResult};
-use crate::executor::{ExecutionContext, ExecutionPlan, StageExecutor, Watchdog};
+use crate::executor::{ExecutionPlan, StageExecutor, Watchdog};
+use crate::math::{BinaryOperator, Expression, MathValue, RuntimeMathEngine};
 use crate::motion::MotionSystem;
 use crate::snapshot::{Snapshot, SnapshotHistory};
 use crate::state::{RuntimeState, TimeState, WorldState};
@@ -27,6 +28,10 @@ pub struct RuntimeEngine {
     constraint_system: ConstraintSystem,
     /// Motion system
     motion_system: MotionSystem,
+    /// Runtime math engine for expression/derivative/integral evaluation
+    math_engine: RuntimeMathEngine,
+    /// Fingerprint of parameter values used for cache invalidation
+    last_parameter_fingerprint: Vec<(String, u64)>,
     /// Watchdog
     watchdog: Watchdog,
     /// Snapshot history
@@ -58,6 +63,8 @@ impl RuntimeEngine {
             stage_executor: StageExecutor::new(),
             constraint_system: ConstraintSystem::new(constraint_config),
             motion_system: MotionSystem::default(),
+            math_engine: RuntimeMathEngine::new(),
+            last_parameter_fingerprint: Vec::new(),
             watchdog,
             snapshots,
             plan: None,
@@ -78,6 +85,9 @@ impl RuntimeEngine {
         self.plan = Some(plan);
         self.execution_state = ExecutionState::Idle;
         self.watchdog.reset();
+        self.last_parameter_fingerprint = Self::parameter_fingerprint(&self.state);
+        self.math_engine.invalidate_caches();
+        self.evaluate_runtime_math()?;
 
         // Take initial snapshot
         if let Some(snapshots) = &mut self.snapshots {
@@ -153,6 +163,9 @@ impl RuntimeEngine {
                 self.state = initial.state.clone();
             }
         }
+        self.last_parameter_fingerprint = Self::parameter_fingerprint(&self.state);
+        self.math_engine.invalidate_caches();
+        self.evaluate_runtime_math()?;
 
         Ok(())
     }
@@ -181,6 +194,8 @@ impl RuntimeEngine {
 
         // Advance time
         self.state.time.advance(dt)?;
+        self.invalidate_math_caches_if_parameters_changed();
+        self.evaluate_runtime_math()?;
 
         // Validate state if configured
         if self.state.world.flags.validate_steps {
@@ -287,6 +302,9 @@ impl RuntimeEngine {
             .ok_or_else(|| RuntimeError::Configuration("Snapshot not found".to_string()))?;
 
         self.state = snapshot.state.clone();
+        self.last_parameter_fingerprint = Self::parameter_fingerprint(&self.state);
+        self.math_engine.invalidate_caches();
+        self.evaluate_runtime_math()?;
         Ok(())
     }
 
@@ -336,5 +354,84 @@ impl EngineStats {
 
     pub fn has_error(&self) -> bool {
         self.execution_state == ExecutionState::Error
+    }
+}
+
+impl RuntimeEngine {
+    fn parameter_fingerprint(state: &RuntimeState) -> Vec<(String, u64)> {
+        let mut items: Vec<(String, u64)> = state
+            .world
+            .parameters
+            .all()
+            .iter()
+            .map(|(id, parameter)| (id.clone(), parameter.value.to_bits()))
+            .collect();
+        items.sort_by(|a, b| a.0.cmp(&b.0));
+        items
+    }
+
+    fn invalidate_math_caches_if_parameters_changed(&mut self) {
+        let current = Self::parameter_fingerprint(&self.state);
+        if current != self.last_parameter_fingerprint {
+            self.math_engine.invalidate_caches();
+            self.last_parameter_fingerprint = current;
+        }
+    }
+
+    fn evaluate_runtime_math(&mut self) -> RuntimeResult<()> {
+        let current_time = self.state.time.current_time;
+        let mut variables = self.state.world.parameters.values();
+        variables.insert("t".to_string(), current_time);
+        let gain = variables.get("gain").copied().unwrap_or(1.0);
+
+        // expression: sin(t)
+        let wave_expression = Expression::Binary(
+            Box::new(Expression::Number(gain)),
+            BinaryOperator::Multiply,
+            Box::new(Expression::FunctionCall(
+                "sin".to_string(),
+                vec![Expression::Variable("t".to_string())],
+            )),
+        );
+        let wave = self
+            .math_engine
+            .evaluate_expression(&wave_expression, &variables)?;
+
+        // derivative: d/dt (t^3)
+        let cubic = Expression::Binary(
+            Box::new(Expression::Variable("t".to_string())),
+            BinaryOperator::Power,
+            Box::new(Expression::Number(3.0)),
+        );
+        let derivative_expr = self.math_engine.evaluate_derivative(&cubic, "t")?;
+        let derivative_value = self
+            .math_engine
+            .evaluate_expression(&derivative_expr, &variables)?;
+
+        // integral: ∫[0,1] x^2 dx
+        let integral_expr = Expression::Binary(
+            Box::new(Expression::Variable("x".to_string())),
+            BinaryOperator::Power,
+            Box::new(Expression::Number(2.0)),
+        );
+        let integral_value = self
+            .math_engine
+            .evaluate_integral(&integral_expr, "x", 0.0, 1.0)?;
+
+        self.state
+            .math_values
+            .insert("engine.time".to_string(), MathValue::Real(current_time));
+        self.state
+            .math_values
+            .insert("engine.wave".to_string(), wave);
+        self.state
+            .math_values
+            .insert("engine.d_wave_dt".to_string(), derivative_value);
+        self.state.math_values.insert(
+            "engine.integral_x2_0_1".to_string(),
+            MathValue::Real(integral_value),
+        );
+
+        Ok(())
     }
 }

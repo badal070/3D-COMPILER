@@ -69,11 +69,8 @@ impl ThreeJsBackend {
                 args.push(&JsValue::from_f64(*segments as f64));
                 args.push(&JsValue::from_f64(*segments as f64));
 
-                js_sys::Reflect::construct(
-                    &js_sys::eval("THREE.SphereGeometry").unwrap(),
-                    &args,
-                )
-                .map_err(|_| RenderError::GeometryCreation)?
+                js_sys::Reflect::construct(&js_sys::eval("THREE.SphereGeometry").unwrap(), &args)
+                    .map_err(|_| RenderError::GeometryCreation)?
             }
 
             RenderGeometry::Box {
@@ -101,11 +98,8 @@ impl ThreeJsBackend {
                 args.push(&JsValue::from_f64(*height as f64));
                 args.push(&JsValue::from_f64(*segments as f64));
 
-                js_sys::Reflect::construct(
-                    &js_sys::eval("THREE.CylinderGeometry").unwrap(),
-                    &args,
-                )
-                .map_err(|_| RenderError::GeometryCreation)?
+                js_sys::Reflect::construct(&js_sys::eval("THREE.CylinderGeometry").unwrap(), &args)
+                    .map_err(|_| RenderError::GeometryCreation)?
             }
 
             RenderGeometry::Cone {
@@ -156,12 +150,8 @@ impl ThreeJsBackend {
                 )
                 .map_err(|_| RenderError::GeometryCreation)?;
 
-                js_sys::Reflect::set(
-                    &geometry,
-                    &"position".into(),
-                    &attribute,
-                )
-                .map_err(|_| RenderError::GeometryCreation)?;
+                js_sys::Reflect::set(&geometry, &"position".into(), &attribute)
+                    .map_err(|_| RenderError::GeometryCreation)?;
 
                 geometry
             }
@@ -193,21 +183,18 @@ impl ThreeJsBackend {
                 )
                 .map_err(|_| RenderError::GeometryCreation)?;
 
-                js_sys::Reflect::set(
-                    &geometry,
-                    &"position".into(),
-                    &pos_attribute,
-                )
-                .map_err(|_| RenderError::GeometryCreation)?;
+                js_sys::Reflect::set(&geometry, &"position".into(), &pos_attribute)
+                    .map_err(|_| RenderError::GeometryCreation)?;
 
                 // Set indices
                 js_sys::Reflect::set(&geometry, &"index".into(), &idx)
                     .map_err(|_| RenderError::GeometryCreation)?;
 
                 // Compute normals
-                let compute_normals = js_sys::Reflect::get(&geometry, &"computeVertexNormals".into())
-                    .map_err(|_| RenderError::GeometryCreation)?;
-                
+                let compute_normals =
+                    js_sys::Reflect::get(&geometry, &"computeVertexNormals".into())
+                        .map_err(|_| RenderError::GeometryCreation)?;
+
                 js_sys::Reflect::apply(
                     &compute_normals.dyn_into::<js_sys::Function>().unwrap(),
                     &geometry,
@@ -309,10 +296,10 @@ impl RenderBackend for ThreeJsBackend {
         // Add to scene
         let add_fn = js_sys::Reflect::get(&self.scene_handle, &"add".into())
             .map_err(|_| RenderError::ObjectCreation)?;
-        
+
         let add_args = Array::new();
         add_args.push(&mesh);
-        
+
         js_sys::Reflect::apply(
             &add_fn.dyn_into::<js_sys::Function>().unwrap(),
             &self.scene_handle,
@@ -425,7 +412,7 @@ impl RenderBackend for ThreeJsBackend {
     }
 
     fn remove_object(&mut self, id: u64) -> RenderResult<()> {
-        let obj = self
+        let _obj = self
             .objects
             .remove(&id)
             .ok_or(RenderError::ObjectNotFound(id))?;
@@ -434,10 +421,10 @@ impl RenderBackend for ThreeJsBackend {
         {
             let remove_fn = js_sys::Reflect::get(&self.scene_handle, &"remove".into())
                 .map_err(|_| RenderError::UpdateFailed)?;
-            
+
             let args = Array::new();
-            args.push(&obj.js_object);
-            
+            args.push(&_obj.js_object);
+
             js_sys::Reflect::apply(
                 &remove_fn.dyn_into::<js_sys::Function>().unwrap(),
                 &self.scene_handle,
@@ -464,7 +451,11 @@ impl RenderBackend for ThreeJsBackend {
 
 #[cfg(target_arch = "wasm32")]
 impl ThreeJsBackend {
-    fn apply_transform_js(&self, object: &JsValue, transform: &RenderTransform) -> RenderResult<()> {
+    fn apply_transform_js(
+        &self,
+        object: &JsValue,
+        transform: &RenderTransform,
+    ) -> RenderResult<()> {
         let matrix = js_sys::Reflect::get(object, &"matrix".into())
             .map_err(|_| RenderError::UpdateFailed)?;
 
@@ -486,7 +477,7 @@ impl ThreeJsBackend {
         // Decompose matrix to update position/rotation/scale
         let decompose = js_sys::Reflect::get(object, &"matrixAutoUpdate".into())
             .map_err(|_| RenderError::UpdateFailed)?;
-        
+
         js_sys::Reflect::set(object, &"matrixAutoUpdate".into(), &JsValue::FALSE)
             .map_err(|_| RenderError::UpdateFailed)?;
 

@@ -28,14 +28,3 @@ criterion = "0.5"
 [[bench]]
 name = "compilation_bench"
 harness = false
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-
-[profile.dev]
-opt-level = 0
-
-[profile.test]
-opt-level = 1

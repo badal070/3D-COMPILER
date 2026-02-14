@@ -1,10 +1,9 @@
 /// Trajectory validation pass.
 /// Validates trajectory paths and targets.
-
 use crate::ast::*;
 use crate::errors::{DslError, ErrorCode, ErrorCollector};
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub struct TrajectoryValidator {
     file: PathBuf,
@@ -32,12 +31,14 @@ impl TrajectoryValidator {
     }
 
     fn build_entity_table<'a>(&self, entities: &'a [AstEntity]) -> HashMap<String, &'a AstEntity> {
-        entities.iter()
-            .map(|e| (e.name.clone(), e))
-            .collect()
+        entities.iter().map(|e| (e.name.clone(), e)).collect()
     }
 
-    fn validate_trajectory(&mut self, trajectory: &AstTrajectory, entity_table: &HashMap<String, &AstEntity>) {
+    fn validate_trajectory(
+        &mut self,
+        trajectory: &AstTrajectory,
+        entity_table: &HashMap<String, &AstEntity>,
+    ) {
         // Validate type field exists
         if trajectory.path_type().is_none() {
             self.errors.add(DslError::new(
@@ -55,8 +56,11 @@ impl TrajectoryValidator {
                 if let Some(type_field) = trajectory.get_field("type") {
                     self.errors.add(DslError::new(
                         ErrorCode::InvalidFieldType,
-                        format!("Invalid trajectory type: '{}'. Valid types: {}", 
-                            path_type, valid_types.join(", ")),
+                        format!(
+                            "Invalid trajectory type: '{}'. Valid types: {}",
+                            path_type,
+                            valid_types.join(", ")
+                        ),
                         type_field.span,
                         self.file.clone(),
                     ));
@@ -70,8 +74,10 @@ impl TrajectoryValidator {
                 if let Some(target_field) = trajectory.get_field("target") {
                     self.errors.add(DslError::new(
                         ErrorCode::UndefinedEntity,
-                        format!("Trajectory '{}' references undefined entity '{}'", 
-                            trajectory.name, target),
+                        format!(
+                            "Trajectory '{}' references undefined entity '{}'",
+                            trajectory.name, target
+                        ),
                         target_field.span,
                         self.file.clone(),
                     ));
@@ -104,8 +110,10 @@ impl TrajectoryValidator {
             if trajectory.get_field(field_name).is_none() {
                 self.errors.add(DslError::new(
                     ErrorCode::MissingRequiredField,
-                    format!("Linear trajectory '{}' missing required field '{}'", 
-                        trajectory.name, field_name),
+                    format!(
+                        "Linear trajectory '{}' missing required field '{}'",
+                        trajectory.name, field_name
+                    ),
                     trajectory.span,
                     self.file.clone(),
                 ));
@@ -119,8 +127,10 @@ impl TrajectoryValidator {
             if trajectory.get_field(field_name).is_none() {
                 self.errors.add(DslError::new(
                     ErrorCode::MissingRequiredField,
-                    format!("Bezier trajectory '{}' missing required field '{}'", 
-                        trajectory.name, field_name),
+                    format!(
+                        "Bezier trajectory '{}' missing required field '{}'",
+                        trajectory.name, field_name
+                    ),
                     trajectory.span,
                     self.file.clone(),
                 ));
@@ -132,8 +142,10 @@ impl TrajectoryValidator {
         if trajectory.get_field("points").is_none() {
             self.errors.add(DslError::new(
                 ErrorCode::MissingRequiredField,
-                format!("Spline trajectory '{}' missing required field 'points'", 
-                    trajectory.name),
+                format!(
+                    "Spline trajectory '{}' missing required field 'points'",
+                    trajectory.name
+                ),
                 trajectory.span,
                 self.file.clone(),
             ));
@@ -146,8 +158,10 @@ impl TrajectoryValidator {
             if trajectory.get_field(field_name).is_none() {
                 self.errors.add(DslError::new(
                     ErrorCode::MissingRequiredField,
-                    format!("Circular trajectory '{}' missing required field '{}'", 
-                        trajectory.name, field_name),
+                    format!(
+                        "Circular trajectory '{}' missing required field '{}'",
+                        trajectory.name, field_name
+                    ),
                     trajectory.span,
                     self.file.clone(),
                 ));

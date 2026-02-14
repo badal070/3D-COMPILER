@@ -2,7 +2,7 @@
 // Executes: Init stage, Static solve, Dynamic update, Sync stage
 // Stages match the execution plan exactly. No improvisation.
 
-use super::{ExecutionStep, StepResult, StepMetrics};
+use super::{ExecutionStep, StepMetrics, StepResult};
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::state::RuntimeState;
 use std::time::Instant;
@@ -57,7 +57,10 @@ impl StageExecutor {
         };
 
         let elapsed = start.elapsed();
-        let mut metrics = result.as_ref().map(|r| r.metrics.clone()).unwrap_or_default();
+        let mut metrics = result
+            .as_ref()
+            .map(|r| r.metrics.clone())
+            .unwrap_or_default();
         metrics.execution_time_us = elapsed.as_micros() as u64;
 
         result.map(|mut r| {
@@ -68,13 +71,13 @@ impl StageExecutor {
 
     fn execute_init(&self, mut state: RuntimeState) -> RuntimeResult<StepResult> {
         // Validate initial state
-        state
-            .validate()
-            .map_err(|e| RuntimeError::InvalidState(crate::error::StateError {
+        state.validate().map_err(|e| {
+            RuntimeError::InvalidState(crate::error::StateError {
                 kind: crate::error::StateErrorKind::InvariantViolation,
                 object_id: None,
                 details: e,
-            }))?;
+            })
+        })?;
 
         // Initialize time
         if state.time.current_time != state.time.bounds.min {
@@ -98,13 +101,13 @@ impl StageExecutor {
 
         // Static constraints should be solved in constraint module
         // Here we just validate the result
-        state
-            .validate()
-            .map_err(|e| RuntimeError::InvalidState(crate::error::StateError {
+        state.validate().map_err(|e| {
+            RuntimeError::InvalidState(crate::error::StateError {
                 kind: crate::error::StateErrorKind::InvariantViolation,
                 object_id: None,
                 details: e,
-            }))?;
+            })
+        })?;
 
         Ok(StepResult::success(state, metrics))
     }
@@ -124,13 +127,13 @@ impl StageExecutor {
         };
 
         // Validate after update
-        state
-            .validate()
-            .map_err(|e| RuntimeError::InvalidState(crate::error::StateError {
+        state.validate().map_err(|e| {
+            RuntimeError::InvalidState(crate::error::StateError {
                 kind: crate::error::StateErrorKind::InvariantViolation,
                 object_id: None,
                 details: e,
-            }))?;
+            })
+        })?;
 
         Ok(StepResult::success(state, metrics))
     }

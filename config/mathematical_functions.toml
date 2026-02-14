@@ -1,0 +1,14 @@
+[functions.elementary]
+sin = { derivative = "cos(x)", integral = "-cos(x)", domain = "R", range = "[-1,1]" }
+cos = { derivative = "-sin(x)", integral = "sin(x)", domain = "R", range = "[-1,1]" }
+exp = { derivative = "exp(x)", integral = "exp(x)", domain = "R", range = "(0,inf)" }
+ln = { derivative = "1/x", integral = "x*ln(x)-x", domain = "(0,inf)", range = "R" }
+
+[functions.special]
+gamma = { implementation = "numerical", domain = "R\\{0,-1,-2,...}" }
+bessel_j = { order_parameter = "n", implementation = "numerical" }
+
+[constants]
+pi = 3.14159265358979323846
+e = 2.71828182845904523536
+golden_ratio = 1.61803398874989484820

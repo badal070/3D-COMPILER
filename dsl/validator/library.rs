@@ -1,7 +1,6 @@
 /// Library compatibility validation pass.
 /// Ensures imported libraries exist and are compatible.
 /// Validates library versions and construct availability.
-
 use crate::ast::*;
 use crate::errors::{DslError, ErrorCode, ErrorCollector};
 use std::collections::HashMap;
@@ -43,7 +42,12 @@ impl LibraryValidator {
         self.validate_imports(&ast.library_imports);
 
         // Validate constructs are provided by imported libraries
-        self.validate_construct_availability(&ast.entities, &ast.constraints, &ast.motions, &imported_libraries);
+        self.validate_construct_availability(
+            &ast.entities,
+            &ast.constraints,
+            &ast.motions,
+            &imported_libraries,
+        );
 
         self.errors.into_result(())
     }
@@ -53,27 +57,16 @@ impl LibraryValidator {
         self.register_library(Library {
             name: "core_mechanics".to_string(),
             version: "1.0.0".to_string(),
-            provides_components: vec![
-                "transform".to_string(),
-                "physical".to_string(),
-            ],
-            provides_constraints: vec![
-                "fixed_joint".to_string(),
-                "hinge_joint".to_string(),
-            ],
-            provides_motions: vec![
-                "rotation".to_string(),
-                "translation".to_string(),
-            ],
+            provides_components: vec!["transform".to_string(), "physical".to_string()],
+            provides_constraints: vec!["fixed_joint".to_string(), "hinge_joint".to_string()],
+            provides_motions: vec!["rotation".to_string(), "translation".to_string()],
         });
 
         // Basic solids library
         self.register_library(Library {
             name: "basic_solids".to_string(),
             version: "1.0.0".to_string(),
-            provides_components: vec![
-                "geometry".to_string(),
-            ],
+            provides_components: vec!["geometry".to_string()],
             provides_constraints: vec![],
             provides_motions: vec![],
         });
@@ -83,10 +76,7 @@ impl LibraryValidator {
             name: "gear_systems".to_string(),
             version: "1.0.0".to_string(),
             provides_components: vec![],
-            provides_constraints: vec![
-                "gear_relation".to_string(),
-                "belt_drive".to_string(),
-            ],
+            provides_constraints: vec!["gear_relation".to_string(), "belt_drive".to_string()],
             provides_motions: vec![],
         });
 
@@ -94,22 +84,15 @@ impl LibraryValidator {
         self.register_library(Library {
             name: "advanced_physics".to_string(),
             version: "1.0.0".to_string(),
-            provides_components: vec![
-                "collision".to_string(),
-                "material".to_string(),
-            ],
-            provides_constraints: vec![
-                "spring".to_string(),
-                "damper".to_string(),
-            ],
-            provides_motions: vec![
-                "oscillation".to_string(),
-            ],
+            provides_components: vec!["collision".to_string(), "material".to_string()],
+            provides_constraints: vec!["spring".to_string(), "damper".to_string()],
+            provides_motions: vec!["oscillation".to_string()],
         });
     }
 
     fn register_library(&mut self, library: Library) {
-        self.available_libraries.insert(library.name.clone(), library);
+        self.available_libraries
+            .insert(library.name.clone(), library);
     }
 
     fn build_import_map(&self, imports: &AstLibraryImports) -> HashMap<String, Library> {
@@ -136,7 +119,8 @@ impl LibraryValidator {
                     )
                     .with_help(format!(
                         "Available libraries: {}",
-                        self.available_libraries.keys()
+                        self.available_libraries
+                            .keys()
                             .map(|s| s.as_str())
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -229,34 +213,61 @@ impl LibraryValidator {
 
     fn suggest_library_for_component(&self, component_name: &str) -> String {
         for (lib_name, library) in &self.available_libraries {
-            if library.provides_components.iter().any(|c| c == component_name) {
-                return format!("Import library '{}' to use component '{}'", lib_name, component_name);
+            if library
+                .provides_components
+                .iter()
+                .any(|c| c == component_name)
+            {
+                return format!(
+                    "Import library '{}' to use component '{}'",
+                    lib_name, component_name
+                );
             }
         }
-        format!("No available library provides component '{}'", component_name)
+        format!(
+            "No available library provides component '{}'",
+            component_name
+        )
     }
 
     fn suggest_library_for_constraint(&self, constraint_type: &str) -> String {
         for (lib_name, library) in &self.available_libraries {
-            if library.provides_constraints.iter().any(|c| c == constraint_type) {
-                return format!("Import library '{}' to use constraint type '{}'", lib_name, constraint_type);
+            if library
+                .provides_constraints
+                .iter()
+                .any(|c| c == constraint_type)
+            {
+                return format!(
+                    "Import library '{}' to use constraint type '{}'",
+                    lib_name, constraint_type
+                );
             }
         }
-        format!("No available library provides constraint type '{}'", constraint_type)
+        format!(
+            "No available library provides constraint type '{}'",
+            constraint_type
+        )
     }
 
     fn suggest_library_for_motion(&self, motion_type: &str) -> String {
         for (lib_name, library) in &self.available_libraries {
             if library.provides_motions.iter().any(|m| m == motion_type) {
-                return format!("Import library '{}' to use motion type '{}'", lib_name, motion_type);
+                return format!(
+                    "Import library '{}' to use motion type '{}'",
+                    lib_name, motion_type
+                );
             }
         }
-        format!("No available library provides motion type '{}'", motion_type)
+        format!(
+            "No available library provides motion type '{}'",
+            motion_type
+        )
     }
 
     /// Add a custom library at runtime (for extensibility)
     pub fn add_library(&mut self, library: Library) {
-        self.available_libraries.insert(library.name.clone(), library);
+        self.available_libraries
+            .insert(library.name.clone(), library);
     }
 
     /// Get available libraries
@@ -272,29 +283,35 @@ mod tests {
     #[test]
     fn test_default_libraries() {
         let validator = LibraryValidator::new(PathBuf::from("test.dsl"));
-        
+
         assert!(validator.available_libraries.contains_key("core_mechanics"));
         assert!(validator.available_libraries.contains_key("basic_solids"));
         assert!(validator.available_libraries.contains_key("gear_systems"));
-        assert!(validator.available_libraries.contains_key("advanced_physics"));
+        assert!(validator
+            .available_libraries
+            .contains_key("advanced_physics"));
     }
 
     #[test]
     fn test_library_provides() {
         let validator = LibraryValidator::new(PathBuf::from("test.dsl"));
-        
+
         let core_lib = validator.available_libraries.get("core_mechanics").unwrap();
-        assert!(core_lib.provides_components.contains(&"transform".to_string()));
+        assert!(core_lib
+            .provides_components
+            .contains(&"transform".to_string()));
         assert!(core_lib.provides_motions.contains(&"rotation".to_string()));
-        
+
         let gear_lib = validator.available_libraries.get("gear_systems").unwrap();
-        assert!(gear_lib.provides_constraints.contains(&"gear_relation".to_string()));
+        assert!(gear_lib
+            .provides_constraints
+            .contains(&"gear_relation".to_string()));
     }
 
     #[test]
     fn test_add_custom_library() {
         let mut validator = LibraryValidator::new(PathBuf::from("test.dsl"));
-        
+
         let custom_lib = Library {
             name: "custom_mechanics".to_string(),
             version: "0.1.0".to_string(),
@@ -302,8 +319,10 @@ mod tests {
             provides_constraints: vec![],
             provides_motions: vec![],
         };
-        
+
         validator.add_library(custom_lib);
-        assert!(validator.available_libraries.contains_key("custom_mechanics"));
+        assert!(validator
+            .available_libraries
+            .contains_key("custom_mechanics"));
     }
 }

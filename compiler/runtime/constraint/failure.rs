@@ -97,11 +97,10 @@ impl FailureClassifier {
                     result.iterations
                 )
             }
-            FailureReason::InsufficientIterations => {
-                "Increase maximum iteration count".to_string()
-            }
+            FailureReason::InsufficientIterations => "Increase maximum iteration count".to_string(),
             FailureReason::ConflictingConstraints => {
-                "Constraints may be contradictory. Review constraint priorities and equations.".to_string()
+                "Constraints may be contradictory. Review constraint priorities and equations."
+                    .to_string()
             }
         }
     }
@@ -150,10 +149,7 @@ pub enum FailureReason {
 
 impl FailureAnalysis {
     pub fn is_recoverable(&self) -> bool {
-        matches!(
-            self.action,
-            FailureAction::Retry | FailureAction::Accept
-        )
+        matches!(self.action, FailureAction::Retry | FailureAction::Accept)
     }
 
     pub fn is_fatal(&self) -> bool {

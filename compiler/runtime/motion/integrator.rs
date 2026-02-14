@@ -6,7 +6,7 @@
 // Educational accuracy beats frame rate
 
 use crate::error::{IntegrationError, IntegrationErrorKind, RuntimeError, RuntimeResult};
-use crate::state::{WorldState, ObjectState, Vector3};
+use crate::state::{ObjectState, Vector3, WorldState};
 
 /// Integration method
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +54,11 @@ impl Integrator {
     }
 
     /// Integrate motion for all dynamic objects
-    pub fn integrate(&mut self, state: &mut WorldState, dt: f64) -> RuntimeResult<IntegrationResult> {
+    pub fn integrate(
+        &mut self,
+        state: &mut WorldState,
+        dt: f64,
+    ) -> RuntimeResult<IntegrationResult> {
         // Validate time step
         if dt < self.min_dt {
             return Err(RuntimeError::IntegrationFailure(IntegrationError {
@@ -134,20 +138,24 @@ impl Integrator {
         Ok(())
     }
 
-    fn integrate_semi_implicit_euler(&self, object: &mut ObjectState, dt: f64) -> RuntimeResult<()> {
+    fn integrate_semi_implicit_euler(
+        &self,
+        object: &mut ObjectState,
+        dt: f64,
+    ) -> RuntimeResult<()> {
         // Semi-implicit Euler is more stable for oscillatory systems
         // v' = v + a * dt
         // x' = x + v' * dt (use updated velocity)
-        
+
         if let Some(mut velocity) = object.velocity {
             // For now, assume zero acceleration (would come from forces)
             // In a full implementation, this would compute forces/acceleration
-            
+
             // Update position with current velocity
             object.position.x += velocity.x * dt;
             object.position.y += velocity.y * dt;
             object.position.z += velocity.z * dt;
-            
+
             object.velocity = Some(velocity);
         }
         Ok(())
@@ -158,21 +166,21 @@ impl Integrator {
         // k1 = f(x, v)
         // k2 = f(x + k1*dt/2, v)
         // x' = x + k2 * dt
-        
+
         if let Some(velocity) = object.velocity {
             // k1 = v
             let k1 = velocity;
-            
+
             // Midpoint position
             let mid_pos = Vector3::new(
                 object.position.x + k1.x * dt * 0.5,
                 object.position.y + k1.y * dt * 0.5,
                 object.position.z + k1.z * dt * 0.5,
             );
-            
+
             // k2 = velocity at midpoint (same as k1 for constant velocity)
             let k2 = velocity;
-            
+
             // Update position
             object.position.x += k2.x * dt;
             object.position.y += k2.y * dt;
@@ -188,17 +196,17 @@ impl Integrator {
         // k3 = f(x + k2*dt/2)
         // k4 = f(x + k3*dt)
         // x' = x + (k1 + 2*k2 + 2*k3 + k4) * dt / 6
-        
+
         if let Some(velocity) = object.velocity {
             let k1 = velocity;
             let k2 = velocity; // Would be different with acceleration
             let k3 = velocity;
             let k4 = velocity;
-            
+
             // Weighted average
-            object.position.x += (k1.x + 2.0*k2.x + 2.0*k3.x + k4.x) * dt / 6.0;
-            object.position.y += (k1.y + 2.0*k2.y + 2.0*k3.y + k4.y) * dt / 6.0;
-            object.position.z += (k1.z + 2.0*k2.z + 2.0*k3.z + k4.z) * dt / 6.0;
+            object.position.x += (k1.x + 2.0 * k2.x + 2.0 * k3.x + k4.x) * dt / 6.0;
+            object.position.y += (k1.y + 2.0 * k2.y + 2.0 * k3.y + k4.y) * dt / 6.0;
+            object.position.z += (k1.z + 2.0 * k2.z + 2.0 * k3.z + k4.z) * dt / 6.0;
         }
         Ok(())
     }

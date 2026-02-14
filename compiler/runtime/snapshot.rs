@@ -52,11 +52,7 @@ impl SnapshotHistory {
     }
 
     /// Take a snapshot of current state
-    pub fn take_snapshot(
-        &mut self,
-        state: RuntimeState,
-        label: Option<String>,
-    ) -> &Snapshot {
+    pub fn take_snapshot(&mut self, state: RuntimeState, label: Option<String>) -> &Snapshot {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -100,13 +96,11 @@ impl SnapshotHistory {
 
     /// Get snapshot at specific time (or closest)
     pub fn at_time(&self, time: f64) -> Option<&Snapshot> {
-        self.snapshots
-            .iter()
-            .min_by(|a, b| {
-                let diff_a = (a.time - time).abs();
-                let diff_b = (b.time - time).abs();
-                diff_a.partial_cmp(&diff_b).unwrap()
-            })
+        self.snapshots.iter().min_by(|a, b| {
+            let diff_a = (a.time - time).abs();
+            let diff_b = (b.time - time).abs();
+            diff_a.partial_cmp(&diff_b).unwrap()
+        })
     }
 
     /// Get all snapshots
@@ -147,22 +141,18 @@ impl SnapshotHistory {
 
     /// Get total memory used by snapshots (estimated)
     pub fn total_size_bytes(&self) -> usize {
-        self.snapshots
-            .iter()
-            .map(|s| s.metadata.size_bytes)
-            .sum()
+        self.snapshots.iter().map(|s| s.metadata.size_bytes).sum()
     }
 
     /// Get history statistics
     pub fn stats(&self) -> HistoryStats {
         let total_size = self.total_size_bytes();
-        let time_span = if let (Some(first), Some(last)) =
-            (self.snapshots.front(), self.snapshots.back())
-        {
-            last.time - first.time
-        } else {
-            0.0
-        };
+        let time_span =
+            if let (Some(first), Some(last)) = (self.snapshots.front(), self.snapshots.back()) {
+                last.time - first.time
+            } else {
+                0.0
+            };
 
         HistoryStats {
             snapshot_count: self.snapshots.len(),

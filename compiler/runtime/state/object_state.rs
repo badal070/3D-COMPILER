@@ -274,10 +274,7 @@ impl ObjectState {
         self.position.has_infinity()
             || self.orientation.has_infinity()
             || self.scale.has_infinity()
-            || self
-                .velocity
-                .as_ref()
-                .map_or(false, |v| v.has_infinity())
+            || self.velocity.as_ref().map_or(false, |v| v.has_infinity())
             || self
                 .angular_velocity
                 .as_ref()

@@ -72,7 +72,11 @@ impl NativeBackend {
             object_count: self.objects.len(),
             vertex_count: total_vertices,
             triangle_count: total_triangles,
-            buffer_count: self.objects.values().filter(|o| o.vertex_buffer_id.is_some()).count(),
+            buffer_count: self
+                .objects
+                .values()
+                .filter(|o| o.vertex_buffer_id.is_some())
+                .count(),
         }
     }
 
@@ -149,7 +153,10 @@ impl RenderBackend for NativeBackend {
     ) -> RenderResult<u64> {
         let id = self.objects.len() as u64 + 1;
 
-        self.log_debug(&format!("Creating object {} with geometry {:?}", id, geometry));
+        self.log_debug(&format!(
+            "Creating object {} with geometry {:?}",
+            id, geometry
+        ));
 
         // Create GPU buffers (simulated)
         let vertex_buffer_id = Some(self.create_vertex_buffer(&geometry));
@@ -172,64 +179,69 @@ impl RenderBackend for NativeBackend {
     }
 
     fn update_transform(&mut self, id: u64, transform: RenderTransform) -> RenderResult<()> {
+        self.log_debug(&format!("Updating transform for object {}", id));
         let obj = self
             .objects
             .get_mut(&id)
             .ok_or(RenderError::ObjectNotFound(id))?;
 
-        self.log_debug(&format!("Updating transform for object {}", id));
         obj.transform = transform;
         Ok(())
     }
 
     fn update_material(&mut self, id: u64, material: RenderMaterial) -> RenderResult<()> {
+        self.log_debug(&format!("Updating material for object {}", id));
         let obj = self
             .objects
             .get_mut(&id)
             .ok_or(RenderError::ObjectNotFound(id))?;
 
-        self.log_debug(&format!("Updating material for object {}", id));
         obj.material = material;
         Ok(())
     }
 
     fn update_geometry(&mut self, id: u64, geometry: RenderGeometry) -> RenderResult<()> {
+        self.log_debug(&format!("Updating geometry for object {}", id));
+        let vertex_buffer_id = Some(self.create_vertex_buffer(&geometry));
+        let index_buffer_id = Some(self.create_index_buffer(&geometry));
+
         let obj = self
             .objects
             .get_mut(&id)
             .ok_or(RenderError::ObjectNotFound(id))?;
 
-        self.log_debug(&format!("Updating geometry for object {}", id));
-
         // Would need to recreate GPU buffers
-        obj.vertex_buffer_id = Some(self.create_vertex_buffer(&geometry));
-        obj.index_buffer_id = Some(self.create_index_buffer(&geometry));
+        obj.vertex_buffer_id = vertex_buffer_id;
+        obj.index_buffer_id = index_buffer_id;
         obj.geometry = geometry;
 
         Ok(())
     }
 
     fn set_visible(&mut self, id: u64, visible: bool) -> RenderResult<()> {
+        self.log_debug(&format!(
+            "Setting visibility for object {} to {}",
+            id, visible
+        ));
         let obj = self
             .objects
             .get_mut(&id)
             .ok_or(RenderError::ObjectNotFound(id))?;
 
-        self.log_debug(&format!("Setting visibility for object {} to {}", id, visible));
         obj.visible = visible;
         Ok(())
     }
 
     fn set_highlighted(&mut self, id: u64, highlighted: bool) -> RenderResult<()> {
+        self.log_debug(&format!(
+            "Setting highlight for object {} to {}",
+            id, highlighted
+        ));
         let obj = self
             .objects
             .get_mut(&id)
             .ok_or(RenderError::ObjectNotFound(id))?;
 
-        self.log_debug(&format!(
-            "Setting highlight for object {} to {}",
-            id, highlighted
-        ));
         obj.highlighted = highlighted;
 
         // In real implementation, would update material to show highlight
@@ -260,7 +272,10 @@ impl RenderBackend for NativeBackend {
     }
 
     fn clear_scene(&mut self) -> RenderResult<()> {
-        self.log_debug(&format!("Clearing scene with {} objects", self.objects.len()));
+        self.log_debug(&format!(
+            "Clearing scene with {} objects",
+            self.objects.len()
+        ));
 
         let count = self.objects.len();
         self.objects.clear();

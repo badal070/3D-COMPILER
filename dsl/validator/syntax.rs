@@ -1,9 +1,8 @@
 /// Syntax validation pass.
 /// Ensures AST conforms to structural rules.
 /// Pure, fail-fast, no mutation.
-
 use crate::ast::*;
-use crate::errors::{DslError, ErrorCode, ErrorCollector};
+use crate::errors::{DslError, ErrorCode, ErrorCollector, SourceSpan};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -27,6 +26,7 @@ impl SyntaxValidator {
         self.validate_constraints(&ast.constraints);
         self.validate_motions(&ast.motions);
         self.validate_timelines(&ast.timelines);
+        self.validate_math_objects(&ast.math_objects);
 
         self.errors.into_result(())
     }
@@ -44,23 +44,29 @@ impl SyntaxValidator {
 
         // Validate IR version format (simple semantic versioning check)
         if !is_valid_semver(&scene.ir_version) {
-            self.errors.add(DslError::new(
-                ErrorCode::InvalidVersionFormat,
-                format!("Invalid IR version format: '{}'", scene.ir_version),
-                scene.span,
-                self.file.clone(),
-            ).with_help("Expected format: MAJOR.MINOR.PATCH (e.g., '0.1.0')".to_string()));
+            self.errors.add(
+                DslError::new(
+                    ErrorCode::InvalidVersionFormat,
+                    format!("Invalid IR version format: '{}'", scene.ir_version),
+                    scene.span,
+                    self.file.clone(),
+                )
+                .with_help("Expected format: MAJOR.MINOR.PATCH (e.g., '0.1.0')".to_string()),
+            );
         }
 
         // Validate unit system
         let valid_systems = ["SI", "Imperial"];
         if !valid_systems.contains(&scene.unit_system.as_str()) {
-            self.errors.add(DslError::new(
-                ErrorCode::InvalidUnitSystem,
-                format!("Unknown unit system: '{}'", scene.unit_system),
-                scene.span,
-                self.file.clone(),
-            ).with_help("Valid unit systems: SI, Imperial".to_string()));
+            self.errors.add(
+                DslError::new(
+                    ErrorCode::InvalidUnitSystem,
+                    format!("Unknown unit system: '{}'", scene.unit_system),
+                    scene.span,
+                    self.file.clone(),
+                )
+                .with_help("Valid unit systems: SI, Imperial".to_string()),
+            );
         }
     }
 
@@ -82,7 +88,10 @@ impl SyntaxValidator {
             if is_reserved_keyword(&import.alias) {
                 self.errors.add(DslError::new(
                     ErrorCode::InvalidIdentifier,
-                    format!("Library alias cannot be a reserved keyword: '{}'", import.alias),
+                    format!(
+                        "Library alias cannot be a reserved keyword: '{}'",
+                        import.alias
+                    ),
                     import.span,
                     self.file.clone(),
                 ));
@@ -106,12 +115,15 @@ impl SyntaxValidator {
 
             // Validate entity has at least one component
             if entity.components.is_empty() {
-                self.errors.add(DslError::new(
-                    ErrorCode::MissingRequiredComponent,
-                    format!("Entity '{}' has no components", entity.name),
-                    entity.span,
-                    self.file.clone(),
-                ).with_help("Entities must have at least one component".to_string()));
+                self.errors.add(
+                    DslError::new(
+                        ErrorCode::MissingRequiredComponent,
+                        format!("Entity '{}' has no components", entity.name),
+                        entity.span,
+                        self.file.clone(),
+                    )
+                    .with_help("Entities must have at least one component".to_string()),
+                );
             }
 
             // Check for duplicate component types
@@ -120,7 +132,10 @@ impl SyntaxValidator {
                 if !seen_components.insert(&component.name) {
                     self.errors.add(DslError::new(
                         ErrorCode::DuplicateComponent,
-                        format!("Duplicate component '{}' in entity '{}'", component.name, entity.name),
+                        format!(
+                            "Duplicate component '{}' in entity '{}'",
+                            component.name, entity.name
+                        ),
                         component.span,
                         self.file.clone(),
                     ));
@@ -191,7 +206,10 @@ impl SyntaxValidator {
             if constraint.constraint_type().is_none() {
                 self.errors.add(DslError::new(
                     ErrorCode::MissingRequiredField,
-                    format!("Constraint '{}' missing required 'type' field", constraint.name),
+                    format!(
+                        "Constraint '{}' missing required 'type' field",
+                        constraint.name
+                    ),
                     constraint.span,
                     self.file.clone(),
                 ));
@@ -203,7 +221,10 @@ impl SyntaxValidator {
                 if !seen_fields.insert(&field.name) {
                     self.errors.add(DslError::new(
                         ErrorCode::DuplicateField,
-                        format!("Duplicate field '{}' in constraint '{}'", field.name, constraint.name),
+                        format!(
+                            "Duplicate field '{}' in constraint '{}'",
+                            field.name, constraint.name
+                        ),
                         field.span,
                         self.file.clone(),
                     ));
@@ -250,12 +271,18 @@ impl SyntaxValidator {
                 if let AstValue::Vector(vec, span) = &axis_field.value {
                     let magnitude = (vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]).sqrt();
                     if (magnitude - 1.0).abs() > 0.001 {
-                        self.errors.add(DslError::new(
-                            ErrorCode::NonNormalizedAxis,
-                            format!("Motion axis must be normalized (magnitude = 1.0), found {:.3}", magnitude),
-                            *span,
-                            self.file.clone(),
-                        ).with_help("Normalize the axis vector before using it".to_string()));
+                        self.errors.add(
+                            DslError::new(
+                                ErrorCode::NonNormalizedAxis,
+                                format!(
+                                    "Motion axis must be normalized (magnitude = 1.0), found {:.3}",
+                                    magnitude
+                                ),
+                                *span,
+                                self.file.clone(),
+                            )
+                            .with_help("Normalize the axis vector before using it".to_string()),
+                        );
                     }
                 }
             }
@@ -280,7 +307,10 @@ impl SyntaxValidator {
                 if !seen_fields.insert(&field.name) {
                     self.errors.add(DslError::new(
                         ErrorCode::DuplicateField,
-                        format!("Duplicate field '{}' in motion '{}'", field.name, motion.name),
+                        format!(
+                            "Duplicate field '{}' in motion '{}'",
+                            field.name, motion.name
+                        ),
                         field.span,
                         self.file.clone(),
                     ));
@@ -308,7 +338,10 @@ impl SyntaxValidator {
                 if event.motion().is_none() {
                     self.errors.add(DslError::new(
                         ErrorCode::MissingRequiredField,
-                        format!("Event in timeline '{}' missing required 'motion' field", timeline.name),
+                        format!(
+                            "Event in timeline '{}' missing required 'motion' field",
+                            timeline.name
+                        ),
                         event.span,
                         self.file.clone(),
                     ));
@@ -335,7 +368,10 @@ impl SyntaxValidator {
                 } else {
                     self.errors.add(DslError::new(
                         ErrorCode::MissingRequiredField,
-                        format!("Event in timeline '{}' missing required 'start' field", timeline.name),
+                        format!(
+                            "Event in timeline '{}' missing required 'start' field",
+                            timeline.name
+                        ),
                         event.span,
                         self.file.clone(),
                     ));
@@ -361,12 +397,212 @@ impl SyntaxValidator {
                 } else {
                     self.errors.add(DslError::new(
                         ErrorCode::MissingRequiredField,
-                        format!("Event in timeline '{}' missing required 'duration' field", timeline.name),
+                        format!(
+                            "Event in timeline '{}' missing required 'duration' field",
+                            timeline.name
+                        ),
                         event.span,
                         self.file.clone(),
                     ));
                 }
             }
+        }
+    }
+
+    fn validate_math_objects(&mut self, math_objects: &[MathObjectNode]) {
+        let mut seen_names = HashSet::new();
+
+        for math_object in math_objects {
+            match math_object {
+                MathObjectNode::Function(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    self.validate_math_expression(&node.body, node.span);
+                }
+                MathObjectNode::Curve(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    self.validate_math_expression(&node.definition, node.span);
+                }
+                MathObjectNode::Surface(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    self.validate_math_expression(&node.definition, node.span);
+                }
+                MathObjectNode::VectorField(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    if node.dimension != node.components.len() {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DimensionMismatch,
+                            format!(
+                                "Vector field '{}' dimension {} does not match component count {}",
+                                node.name,
+                                node.dimension,
+                                node.components.len()
+                            ),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    for component in &node.components {
+                        self.validate_math_expression(component, node.span);
+                    }
+                }
+                MathObjectNode::ScalarField(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    self.validate_math_expression(&node.expression, node.span);
+                }
+                MathObjectNode::Transformation(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    self.validate_math_expression(&node.expression, node.span);
+                }
+                MathObjectNode::DifferentialEquation(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    if node.order == 0 {
+                        self.errors.add(DslError::new(
+                            ErrorCode::InvalidFieldType,
+                            format!("Differential equation '{}' must have order >= 1", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    self.validate_math_expression(&node.equation, node.span);
+                }
+                MathObjectNode::MatrixDefinition(node) => {
+                    if !seen_names.insert(node.name.clone()) {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DuplicateEntityName,
+                            format!("Duplicate math object name: '{}'", node.name),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    if node.rows != node.elements.len()
+                        || node.elements.iter().any(|row| row.len() != node.cols)
+                    {
+                        self.errors.add(DslError::new(
+                            ErrorCode::DimensionMismatch,
+                            format!(
+                                "Matrix '{}' declared as {}x{} but element shape differs",
+                                node.name, node.rows, node.cols
+                            ),
+                            node.span,
+                            self.file.clone(),
+                        ));
+                    }
+                    for row in &node.elements {
+                        for expr in row {
+                            self.validate_math_expression(expr, node.span);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn validate_math_expression(&mut self, expr: &MathExpression, span: SourceSpan) {
+        match expr {
+            MathExpression::Number(n) => {
+                if !n.is_finite() {
+                    self.errors.add(DslError::new(
+                        ErrorCode::InvalidNumber,
+                        format!("Math literal must be finite, found {}", n),
+                        span,
+                        self.file.clone(),
+                    ));
+                }
+            }
+            MathExpression::ComplexNumber { real, imag } => {
+                if !real.is_finite() || !imag.is_finite() {
+                    self.errors.add(DslError::new(
+                        ErrorCode::InvalidNumber,
+                        "Complex literal components must be finite".to_string(),
+                        span,
+                        self.file.clone(),
+                    ));
+                }
+            }
+            MathExpression::UnaryOp(_, inner) => self.validate_math_expression(inner, span),
+            MathExpression::BinaryOp(lhs, _, rhs) => {
+                self.validate_math_expression(lhs, span);
+                self.validate_math_expression(rhs, span);
+            }
+            MathExpression::FunctionCall(_, args) => {
+                for arg in args {
+                    self.validate_math_expression(arg, span);
+                }
+            }
+            MathExpression::Derivative { expression, .. }
+            | MathExpression::Integral { expression, .. }
+            | MathExpression::Limit { expression, .. }
+            | MathExpression::Summation { expression, .. }
+            | MathExpression::Product { expression, .. } => {
+                self.validate_math_expression(expression, span);
+            }
+            MathExpression::Piecewise(cases) => {
+                for (_, value) in cases {
+                    self.validate_math_expression(value, span);
+                }
+            }
+            MathExpression::MatrixExpr(rows) => {
+                for row in rows {
+                    for value in row {
+                        self.validate_math_expression(value, span);
+                    }
+                }
+            }
+            MathExpression::VectorExpr(values) => {
+                for value in values {
+                    self.validate_math_expression(value, span);
+                }
+            }
+            MathExpression::Variable(_) | MathExpression::Constant(_) => {}
         }
     }
 }
@@ -382,7 +618,14 @@ fn is_valid_semver(version: &str) -> bool {
 fn is_reserved_keyword(word: &str) -> bool {
     matches!(
         word,
-        "scene" | "library_imports" | "entity" | "constraint" | "motion" | "timeline" | "event" | "components"
+        "scene"
+            | "library_imports"
+            | "entity"
+            | "constraint"
+            | "motion"
+            | "timeline"
+            | "event"
+            | "components"
     )
 }
 

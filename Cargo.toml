@@ -4,6 +4,7 @@
 members = [
     "dsl",
     "compiler/runtime",
+    "compiler/renderer",
     "compiler/ir",
     "wasm"
 ]
@@ -20,3 +21,6 @@ codegen-units = 1
 
 [profile.dev]
 opt-level = 0
+
+[profile.test]
+opt-level = 1

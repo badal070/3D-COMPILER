@@ -3,7 +3,7 @@
 // Object registry, active constraints, execution flags
 // Must be serializable. No exceptions.
 
-use super::{ObjectState, ObjectId, ParameterState};
+use super::{ObjectId, ObjectState, ParameterState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

@@ -57,23 +57,23 @@
 /// let compiler = Compiler::new();
 /// let ir = compiler.compile(source, file).expect("Compilation failed");
 /// ```
-
 pub mod ast;
 pub mod errors;
 pub mod lexer;
-pub mod parser;
 pub mod lower_to_ir;
+pub mod parser;
 
 pub mod validator {
-    pub mod syntax;
-    pub mod schema;
-    pub mod references;
-    pub mod units;
+    pub mod compound_motion;
+    pub mod field;
     pub mod library;
     pub mod material;
-    pub mod field;
-    pub mod compound_motion;
+    pub mod math_semantic;
+    pub mod references;
+    pub mod schema;
+    pub mod syntax;
     pub mod trajectory;
+    pub mod units;
 }
 
 use crate::ast::AstFile;
@@ -81,15 +81,16 @@ use crate::errors::{DslError, DslResult};
 use crate::lexer::Lexer;
 use crate::lower_to_ir::{IrLowering, IrScene};
 use crate::parser::Parser;
+use crate::validator::compound_motion::CompoundMotionValidator;
+use crate::validator::field::FieldValidator;
 use crate::validator::library::LibraryValidator;
+use crate::validator::material::MaterialValidator;
+use crate::validator::math_semantic::MathSemanticValidator;
 use crate::validator::references::ReferenceValidator;
 use crate::validator::schema::SchemaValidator;
 use crate::validator::syntax::SyntaxValidator;
-use crate::validator::units::{UnitSystem, UnitValidator};
-use crate::validator::material::MaterialValidator;
-use crate::validator::field::FieldValidator;
-use crate::validator::compound_motion::CompoundMotionValidator;
 use crate::validator::trajectory::TrajectoryValidator;
+use crate::validator::units::{UnitSystem, UnitValidator};
 use std::path::PathBuf;
 
 /// Main compiler interface
@@ -114,7 +115,11 @@ impl Compiler {
     ///
     /// * `Ok(IrScene)` - Successfully compiled IR
     /// * `Err(Vec<DslError>)` - Compilation errors with detailed diagnostics
-    pub fn compile(&self, source: impl Into<String>, file: PathBuf) -> Result<IrScene, Vec<DslError>> {
+    pub fn compile(
+        &self,
+        source: impl Into<String>,
+        file: PathBuf,
+    ) -> Result<IrScene, Vec<DslError>> {
         let source = source.into();
 
         // 1. Lexical analysis
@@ -150,15 +155,14 @@ impl Compiler {
         ReferenceValidator::new(file.clone()).validate(ast)?;
 
         // Pass 4: Unit validation
-        let unit_system = UnitSystem::from_str(&ast.scene.unit_system)
-            .ok_or_else(|| {
-                vec![DslError::new(
-                    errors::ErrorCode::InvalidUnitSystem,
-                    format!("Invalid unit system: '{}'", ast.scene.unit_system),
-                    ast.scene.span,
-                    file.clone(),
-                )]
-            })?;
+        let unit_system = UnitSystem::from_str(&ast.scene.unit_system).ok_or_else(|| {
+            vec![DslError::new(
+                errors::ErrorCode::InvalidUnitSystem,
+                format!("Invalid unit system: '{}'", ast.scene.unit_system),
+                ast.scene.span,
+                file.clone(),
+            )]
+        })?;
 
         UnitValidator::new(file.clone(), unit_system).validate(ast)?;
 
@@ -172,10 +176,13 @@ impl Compiler {
         // Pass 7: Field validation (NEW)
         FieldValidator::new(file.clone()).validate(ast)?;
 
-        // Pass 8: Compound motion validation (NEW)
+        // Pass 8: Math semantic validation (NEW)
+        MathSemanticValidator::new(file.clone()).validate(ast)?;
+
+        // Pass 9: Compound motion validation (NEW)
         CompoundMotionValidator::new(file.clone()).validate(ast)?;
 
-        // Pass 9: Trajectory validation (NEW)
+        // Pass 10: Trajectory validation (NEW)
         TrajectoryValidator::new(file.clone()).validate(ast)?;
 
         Ok(())
@@ -336,7 +343,7 @@ scene {
 
         let ir = result.unwrap();
         let json = ir.to_json();
-        
+
         assert!(json["metadata"]["name"].as_str().unwrap() == "Rotating Cube");
         assert!(json["entities"].as_array().unwrap().len() == 1);
     }

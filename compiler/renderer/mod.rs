@@ -10,12 +10,16 @@ pub mod backend;
 pub mod bridge;
 pub mod error;
 pub mod interpolation;
+pub mod mesh_generator;
 pub mod scene_map;
 pub mod sync;
 pub mod visibility;
 
 pub use bridge::RendererBridge;
 pub use error::{RenderError, RenderResult};
+pub use mesh_generator::{
+    generate_function_mesh_2d, generate_parametric_surface_mesh, generate_surface_mesh_3d,
+};
 
 /// Renderer configuration
 #[derive(Debug, Clone)]
@@ -44,7 +48,6 @@ impl Default for RendererConfig {
 /// Public interface for the renderer subsystem
 pub struct Renderer {
     bridge: RendererBridge,
-    config: RendererConfig,
 }
 
 impl Renderer {
@@ -52,7 +55,6 @@ impl Renderer {
     pub fn new(backend: Box<dyn backend::RenderBackend>, config: RendererConfig) -> Self {
         Self {
             bridge: RendererBridge::new(backend, config.clone()),
-            config,
         }
     }
 
@@ -76,6 +78,45 @@ impl Renderer {
     pub fn shutdown(self) -> RenderResult<()> {
         self.bridge.shutdown()
     }
+
+    /// Build a 2D function plot as line geometry.
+    pub fn render_function_plot<F>(
+        &self,
+        f: F,
+        domain: (f64, f64),
+        resolution: usize,
+    ) -> RenderResult<GeometryType>
+    where
+        F: Fn(f64) -> f64,
+    {
+        generate_function_mesh_2d(f, domain, resolution)
+    }
+
+    /// Build a z=f(x,y) surface mesh.
+    pub fn render_surface_plot<F>(
+        &self,
+        f: F,
+        domain: ((f64, f64), (f64, f64)),
+        resolution: (usize, usize),
+    ) -> RenderResult<GeometryType>
+    where
+        F: Fn(f64, f64) -> f64,
+    {
+        generate_surface_mesh_3d(f, domain, resolution)
+    }
+
+    /// Build a parametric surface mesh.
+    pub fn render_parametric_surface<F>(
+        &self,
+        f: F,
+        domain: ((f64, f64), (f64, f64)),
+        resolution: (usize, usize),
+    ) -> RenderResult<GeometryType>
+    where
+        F: Fn(f64, f64) -> [f64; 3],
+    {
+        generate_parametric_surface_mesh(f, domain, resolution)
+    }
 }
 
 /// Immutable snapshot from runtime
@@ -85,7 +126,36 @@ pub struct RuntimeSnapshot {
     pub tick: u64,
     pub timestamp: f64,
     pub objects: Vec<ObjectState>,
+    pub math_renderables: Vec<MathRenderable>,
     pub focus_ids: Vec<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub enum MathRenderable {
+    Function2D {
+        id: u64,
+        domain: (f64, f64),
+        resolution: usize,
+        amplitude: f64,
+        frequency: f64,
+        phase: f64,
+    },
+    Surface3D {
+        id: u64,
+        domain_x: (f64, f64),
+        domain_y: (f64, f64),
+        resolution: (usize, usize),
+        amplitude: f64,
+        phase: f64,
+    },
+    Field2D {
+        id: u64,
+        domain_x: (f64, f64),
+        domain_y: (f64, f64),
+        resolution: (usize, usize),
+        scale: f64,
+        phase: f64,
+    },
 }
 
 /// State of a single object at a point in time
@@ -102,13 +172,33 @@ pub struct ObjectState {
 /// Geometry type from the semantic layer
 #[derive(Debug, Clone)]
 pub enum GeometryType {
-    Sphere { radius: f64 },
-    Box { width: f64, height: f64, depth: f64 },
-    Cylinder { radius: f64, height: f64 },
-    Cone { radius: f64, height: f64 },
-    Plane { width: f64, height: f64 },
-    Line { points: Vec<[f64; 3]> },
-    Mesh { vertices: Vec<[f64; 3]>, indices: Vec<u32> },
+    Sphere {
+        radius: f64,
+    },
+    Box {
+        width: f64,
+        height: f64,
+        depth: f64,
+    },
+    Cylinder {
+        radius: f64,
+        height: f64,
+    },
+    Cone {
+        radius: f64,
+        height: f64,
+    },
+    Plane {
+        width: f64,
+        height: f64,
+    },
+    Line {
+        points: Vec<[f64; 3]>,
+    },
+    Mesh {
+        vertices: Vec<[f64; 3]>,
+        indices: Vec<u32>,
+    },
 }
 
 /// Transform in 3D space

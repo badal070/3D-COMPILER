@@ -1,7 +1,6 @@
 /// Lexical analyzer for the DSL.
 /// Transforms source text into a stream of tokens.
 /// No execution, no interpretation - pure tokenization.
-
 use crate::errors::{DslError, DslResult, ErrorCode, SourceSpan};
 use std::path::PathBuf;
 
@@ -17,8 +16,15 @@ pub enum TokenKind {
     RightBrace,   // }
     LeftBracket,  // [
     RightBracket, // ]
+    LeftParen,    // (
+    RightParen,   // )
+    Equals,       // =
     Colon,        // :
     Comma,        // ,
+    Pipe,         // |
+    DoublePipe,   // || or ∥
+    LeftAngle,    // ⟨
+    RightAngle,   // ⟩
 
     // Keywords (reserved identifiers)
     Scene,
@@ -38,8 +44,69 @@ pub enum TokenKind {
     CompoundMotion,
     Trajectory,
 
+    // Math-specific
+    MathKeyword(MathKeyword),
+    MathOperator(MathOperator),
+    MathConstant(MathConstant),
+    SetSymbol(SetSymbol),
+    GreekLetter(String),
+    LatexCommand(String),
+
     // Special
     Eof,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MathKeyword {
+    Function,
+    Curve,
+    Surface,
+    VectorField,
+    ScalarField,
+    Domain,
+    Range,
+    Limit,
+    Derivative,
+    Integral,
+    Parameter,
+    Implicit,
+    Parametric,
+    Polar,
+    Complex,
+    Matrix,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MathOperator {
+    PartialDerivative, // ∂
+    Integral,          // ∫
+    Summation,         // ∑
+    Product,           // ∏
+    Gradient,          // ∇
+    Cross,             // ×
+    Dot,               // ·
+    Plus,              // +
+    Minus,             // -
+    Multiply,          // *
+    Divide,            // /
+    Power,             // ^
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MathConstant {
+    Pi,        // π
+    Euler,     // e
+    Imaginary, // i
+    Infinity,  // ∞
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SetSymbol {
+    In,        // ∈
+    NotIn,     // ∉
+    Subset,    // ⊂
+    Union,     // ∪
+    Intersect, // ∩
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +187,18 @@ impl Lexer {
                 self.advance();
                 TokenKind::RightBracket
             }
+            '(' => {
+                self.advance();
+                TokenKind::LeftParen
+            }
+            ')' => {
+                self.advance();
+                TokenKind::RightParen
+            }
+            '=' => {
+                self.advance();
+                TokenKind::Equals
+            }
             ':' => {
                 self.advance();
                 TokenKind::Colon
@@ -128,9 +207,115 @@ impl Lexer {
                 self.advance();
                 TokenKind::Comma
             }
+            '|' => {
+                self.advance();
+                if !self.is_eof() && self.current_char() == '|' {
+                    self.advance();
+                    TokenKind::DoublePipe
+                } else {
+                    TokenKind::Pipe
+                }
+            }
+            '∥' => {
+                self.advance();
+                TokenKind::DoublePipe
+            }
+            '⟨' => {
+                self.advance();
+                TokenKind::LeftAngle
+            }
+            '⟩' => {
+                self.advance();
+                TokenKind::RightAngle
+            }
+            '∂' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::PartialDerivative)
+            }
+            '∫' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Integral)
+            }
+            '∑' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Summation)
+            }
+            '∏' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Product)
+            }
+            '∇' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Gradient)
+            }
+            '×' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Cross)
+            }
+            '·' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Dot)
+            }
+            '*' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Multiply)
+            }
+            '/' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Divide)
+            }
+            '^' => {
+                self.advance();
+                TokenKind::MathOperator(MathOperator::Power)
+            }
+            '∈' => {
+                self.advance();
+                TokenKind::SetSymbol(SetSymbol::In)
+            }
+            '∉' => {
+                self.advance();
+                TokenKind::SetSymbol(SetSymbol::NotIn)
+            }
+            '⊂' => {
+                self.advance();
+                TokenKind::SetSymbol(SetSymbol::Subset)
+            }
+            '∪' => {
+                self.advance();
+                TokenKind::SetSymbol(SetSymbol::Union)
+            }
+            '∩' => {
+                self.advance();
+                TokenKind::SetSymbol(SetSymbol::Intersect)
+            }
+            'π' => {
+                self.advance();
+                TokenKind::MathConstant(MathConstant::Pi)
+            }
+            '∞' => {
+                self.advance();
+                TokenKind::MathConstant(MathConstant::Infinity)
+            }
+            '\\' => return self.scan_latex_command(start_line, start_col, start_pos),
             '"' => return self.scan_string(start_line, start_col, start_pos),
-            '0'..='9' | '-' | '+' => return self.scan_number(start_line, start_col, start_pos),
-            'a'..='z' | 'A'..='Z' | '_' => {
+            '0'..='9' => return self.scan_number(start_line, start_col, start_pos),
+            '-' | '+' => {
+                if self
+                    .peek_char()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                {
+                    return self.scan_number(start_line, start_col, start_pos);
+                }
+                let op = if ch == '+' {
+                    MathOperator::Plus
+                } else {
+                    MathOperator::Minus
+                };
+                self.advance();
+                TokenKind::MathOperator(op)
+            }
+            _ if Self::is_identifier_start(ch) => {
                 return self.scan_identifier(start_line, start_col, start_pos)
             }
             _ => {
@@ -165,11 +350,26 @@ impl Lexer {
 
         while !self.is_eof() {
             let ch = self.current_char();
-            if ch.is_alphanumeric() || ch == '_' {
+            if Self::is_identifier_continue(ch) {
                 ident.push(ch);
                 self.advance();
             } else {
                 break;
+            }
+        }
+
+        if ident.chars().count() == 1 {
+            let ch = ident.chars().next().unwrap_or_default();
+            if Self::is_greek_letter(ch) {
+                let span = SourceSpan::new(
+                    start_line,
+                    start_col,
+                    self.line,
+                    self.column,
+                    start_pos,
+                    self.position,
+                );
+                return Ok(Token::new(TokenKind::GreekLetter(ident), span));
             }
         }
 
@@ -188,6 +388,25 @@ impl Lexer {
             "field" => TokenKind::Field,
             "compound_motion" => TokenKind::CompoundMotion,
             "trajectory" => TokenKind::Trajectory,
+            "function" => TokenKind::MathKeyword(MathKeyword::Function),
+            "curve" => TokenKind::MathKeyword(MathKeyword::Curve),
+            "surface" => TokenKind::MathKeyword(MathKeyword::Surface),
+            "vector_field" => TokenKind::MathKeyword(MathKeyword::VectorField),
+            "scalar_field" => TokenKind::MathKeyword(MathKeyword::ScalarField),
+            "domain" => TokenKind::MathKeyword(MathKeyword::Domain),
+            "range" => TokenKind::MathKeyword(MathKeyword::Range),
+            "limit" => TokenKind::MathKeyword(MathKeyword::Limit),
+            "derivative" => TokenKind::MathKeyword(MathKeyword::Derivative),
+            "integral" => TokenKind::MathKeyword(MathKeyword::Integral),
+            "parameter" => TokenKind::MathKeyword(MathKeyword::Parameter),
+            "implicit" => TokenKind::MathKeyword(MathKeyword::Implicit),
+            "parametric" => TokenKind::MathKeyword(MathKeyword::Parametric),
+            "polar" => TokenKind::MathKeyword(MathKeyword::Polar),
+            "complex" => TokenKind::MathKeyword(MathKeyword::Complex),
+            "matrix" => TokenKind::MathKeyword(MathKeyword::Matrix),
+            "pi" => TokenKind::MathConstant(MathConstant::Pi),
+            "e" => TokenKind::MathConstant(MathConstant::Euler),
+            "i" => TokenKind::MathConstant(MathConstant::Imaginary),
             _ => TokenKind::Identifier(ident),
         };
 
@@ -289,7 +508,7 @@ impl Lexer {
 
         while !self.is_eof() && self.current_char() != '"' {
             let ch = self.current_char();
-            
+
             // Basic escape sequences
             if ch == '\\' {
                 self.advance();
@@ -343,6 +562,60 @@ impl Lexer {
         );
 
         Ok(Token::new(TokenKind::String(string), span))
+    }
+
+    fn scan_latex_command(
+        &mut self,
+        start_line: usize,
+        start_col: usize,
+        start_pos: usize,
+    ) -> DslResult<Token> {
+        self.advance(); // Skip leading '\'
+        let mut command = String::new();
+
+        while !self.is_eof() && self.current_char().is_alphabetic() {
+            command.push(self.current_char());
+            self.advance();
+        }
+
+        if command.is_empty() {
+            return Err(DslError::new(
+                ErrorCode::UnexpectedCharacter,
+                "Expected LaTeX command after '\\'".to_string(),
+                SourceSpan::new(
+                    start_line,
+                    start_col,
+                    self.line,
+                    self.column,
+                    start_pos,
+                    self.position,
+                ),
+                self.file.clone(),
+            ));
+        }
+
+        let span = SourceSpan::new(
+            start_line,
+            start_col,
+            self.line,
+            self.column,
+            start_pos,
+            self.position,
+        );
+
+        Ok(Token::new(TokenKind::LatexCommand(command), span))
+    }
+
+    fn is_identifier_start(ch: char) -> bool {
+        ch == '_' || ch.is_alphabetic()
+    }
+
+    fn is_identifier_continue(ch: char) -> bool {
+        ch == '_' || ch.is_alphanumeric()
+    }
+
+    fn is_greek_letter(ch: char) -> bool {
+        ('\u{0370}'..='\u{03FF}').contains(&ch) || ('\u{1F00}'..='\u{1FFF}').contains(&ch)
     }
 
     fn skip_whitespace_and_comments(&mut self) {
@@ -407,7 +680,7 @@ mod tests {
 
     #[test]
     fn test_basic_tokens() {
-        let tokens = lex("{ } [ ] : ,");
+        let tokens = lex("{ } [ ] ( ) = : ,");
         assert_eq!(
             tokens,
             vec![
@@ -415,6 +688,9 @@ mod tests {
                 TokenKind::RightBrace,
                 TokenKind::LeftBracket,
                 TokenKind::RightBracket,
+                TokenKind::LeftParen,
+                TokenKind::RightParen,
+                TokenKind::Equals,
                 TokenKind::Colon,
                 TokenKind::Comma,
                 TokenKind::Eof
@@ -484,6 +760,109 @@ mod tests {
         assert_eq!(
             tokens,
             vec![TokenKind::Scene, TokenKind::Entity, TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn test_math_operators_constants_and_set_symbols() {
+        let tokens = lex("∂ ∫ ∑ ∏ ∇ × · π ∞ ∈ ∉ ⊂ ∪ ∩");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::MathOperator(MathOperator::PartialDerivative),
+                TokenKind::MathOperator(MathOperator::Integral),
+                TokenKind::MathOperator(MathOperator::Summation),
+                TokenKind::MathOperator(MathOperator::Product),
+                TokenKind::MathOperator(MathOperator::Gradient),
+                TokenKind::MathOperator(MathOperator::Cross),
+                TokenKind::MathOperator(MathOperator::Dot),
+                TokenKind::MathConstant(MathConstant::Pi),
+                TokenKind::MathConstant(MathConstant::Infinity),
+                TokenKind::SetSymbol(SetSymbol::In),
+                TokenKind::SetSymbol(SetSymbol::NotIn),
+                TokenKind::SetSymbol(SetSymbol::Subset),
+                TokenKind::SetSymbol(SetSymbol::Union),
+                TokenKind::SetSymbol(SetSymbol::Intersect),
+                TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_math_keywords_and_constants() {
+        let tokens = lex("function curve surface vector_field scalar_field domain range limit derivative integral parameter implicit parametric polar complex matrix pi e i");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::MathKeyword(MathKeyword::Function),
+                TokenKind::MathKeyword(MathKeyword::Curve),
+                TokenKind::MathKeyword(MathKeyword::Surface),
+                TokenKind::MathKeyword(MathKeyword::VectorField),
+                TokenKind::MathKeyword(MathKeyword::ScalarField),
+                TokenKind::MathKeyword(MathKeyword::Domain),
+                TokenKind::MathKeyword(MathKeyword::Range),
+                TokenKind::MathKeyword(MathKeyword::Limit),
+                TokenKind::MathKeyword(MathKeyword::Derivative),
+                TokenKind::MathKeyword(MathKeyword::Integral),
+                TokenKind::MathKeyword(MathKeyword::Parameter),
+                TokenKind::MathKeyword(MathKeyword::Implicit),
+                TokenKind::MathKeyword(MathKeyword::Parametric),
+                TokenKind::MathKeyword(MathKeyword::Polar),
+                TokenKind::MathKeyword(MathKeyword::Complex),
+                TokenKind::MathKeyword(MathKeyword::Matrix),
+                TokenKind::MathConstant(MathConstant::Pi),
+                TokenKind::MathConstant(MathConstant::Euler),
+                TokenKind::MathConstant(MathConstant::Imaginary),
+                TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_greek_letters_and_latex_commands() {
+        let tokens = lex("α β γ \\frac \\sqrt");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::GreekLetter("α".to_string()),
+                TokenKind::GreekLetter("β".to_string()),
+                TokenKind::GreekLetter("γ".to_string()),
+                TokenKind::LatexCommand("frac".to_string()),
+                TokenKind::LatexCommand("sqrt".to_string()),
+                TokenKind::Eof
+            ]
+        );
+    }
+
+    #[test]
+    fn test_interval_notation_tokens() {
+        let tokens = lex("[a,b) (x,y] |z| ⟨u,v⟩ ∥w∥");
+        assert_eq!(
+            tokens,
+            vec![
+                TokenKind::LeftBracket,
+                TokenKind::Identifier("a".to_string()),
+                TokenKind::Comma,
+                TokenKind::Identifier("b".to_string()),
+                TokenKind::RightParen,
+                TokenKind::LeftParen,
+                TokenKind::Identifier("x".to_string()),
+                TokenKind::Comma,
+                TokenKind::Identifier("y".to_string()),
+                TokenKind::RightBracket,
+                TokenKind::Pipe,
+                TokenKind::Identifier("z".to_string()),
+                TokenKind::Pipe,
+                TokenKind::LeftAngle,
+                TokenKind::Identifier("u".to_string()),
+                TokenKind::Comma,
+                TokenKind::Identifier("v".to_string()),
+                TokenKind::RightAngle,
+                TokenKind::DoublePipe,
+                TokenKind::Identifier("w".to_string()),
+                TokenKind::DoublePipe,
+                TokenKind::Eof
+            ]
         );
     }
 }

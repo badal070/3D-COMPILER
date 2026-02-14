@@ -1,10 +1,9 @@
 /// Compound motion validation pass.
 /// Validates compound motions reference existing motions.
-
 use crate::ast::*;
 use crate::errors::{DslError, ErrorCode, ErrorCollector};
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub struct CompoundMotionValidator {
     file: PathBuf,
@@ -32,17 +31,22 @@ impl CompoundMotionValidator {
     }
 
     fn build_motion_table<'a>(&self, motions: &'a [AstMotion]) -> HashMap<String, &'a AstMotion> {
-        motions.iter()
-            .map(|m| (m.name.clone(), m))
-            .collect()
+        motions.iter().map(|m| (m.name.clone(), m)).collect()
     }
 
-    fn validate_compound_motion(&mut self, compound_motion: &AstCompoundMotion, motion_table: &HashMap<String, &AstMotion>) {
+    fn validate_compound_motion(
+        &mut self,
+        compound_motion: &AstCompoundMotion,
+        motion_table: &HashMap<String, &AstMotion>,
+    ) {
         // Validate type field exists
         if compound_motion.motion_type().is_none() {
             self.errors.add(DslError::new(
                 ErrorCode::MissingRequiredField,
-                format!("Compound motion '{}' missing 'type' field", compound_motion.name),
+                format!(
+                    "Compound motion '{}' missing 'type' field",
+                    compound_motion.name
+                ),
                 compound_motion.span,
                 self.file.clone(),
             ));
@@ -55,8 +59,11 @@ impl CompoundMotionValidator {
                 if let Some(type_field) = compound_motion.get_field("type") {
                     self.errors.add(DslError::new(
                         ErrorCode::InvalidFieldType,
-                        format!("Invalid compound motion type: '{}'. Valid types: {}", 
-                            motion_type, valid_types.join(", ")),
+                        format!(
+                            "Invalid compound motion type: '{}'. Valid types: {}",
+                            motion_type,
+                            valid_types.join(", ")
+                        ),
                         type_field.span,
                         self.file.clone(),
                     ));
@@ -70,8 +77,10 @@ impl CompoundMotionValidator {
             if !motion_table.contains_key(motion_name) {
                 self.errors.add(DslError::new(
                     ErrorCode::UndefinedMotion,
-                    format!("Compound motion '{}' references undefined motion '{}'", 
-                        compound_motion.name, motion_name),
+                    format!(
+                        "Compound motion '{}' references undefined motion '{}'",
+                        compound_motion.name, motion_name
+                    ),
                     compound_motion.span,
                     self.file.clone(),
                 ));
@@ -82,7 +91,10 @@ impl CompoundMotionValidator {
         if motion_list.is_empty() {
             self.errors.add(DslError::new(
                 ErrorCode::MissingRequiredField,
-                format!("Compound motion '{}' must specify at least one motion", compound_motion.name),
+                format!(
+                    "Compound motion '{}' must specify at least one motion",
+                    compound_motion.name
+                ),
                 compound_motion.span,
                 self.file.clone(),
             ));

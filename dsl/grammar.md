@@ -92,9 +92,10 @@ motion_body   ::= "target:" IDENT "type:" IDENT field*
 
 # NEW: Compound motions (nested compositions)
 compound_motion ::= "compound_motion" IDENT "{" compound_body "}"
-compound_body   ::= "type:" compound_type "motions:" motion_list field*
-compound_type   ::= "sequential" | "parallel" | "conditional" | 
-                    "oscillatory" | "periodic" | "damped"
+compound_body   ::= "type:" compound_type "motions:" motion_list field*␊
+compound_type   ::= "sequential" | "parallel" | "conditional" | ␊
+                    "oscillatory" | "periodic" | "damped" | "eased" | "blended"
+
 motion_list     ::= "[" IDENT ("," IDENT)* "]"
 
 # NEW: Trajectories (path-based motion)
@@ -217,6 +218,8 @@ IDENT         ::= [a-zA-Z_][a-zA-Z0-9_]*
   - `oscillatory`: harmonic oscillation wrapper
   - `periodic`: repeating motion pattern
   - `damped`: exponentially damped motion
+  - `eased`: apply easing curve to motion timing
+  - `blended`: blend motions with weighted mixing
 - All referenced motions must exist
 - No circular dependencies in motion composition
 - Timing resolved at runtime from timeline

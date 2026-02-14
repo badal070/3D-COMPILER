@@ -3,7 +3,9 @@
 //! The contract between renderer and rendering engine.
 //! Renderer issues commands. Backend executes them.
 
-use crate::renderer::error::{RenderError, RenderResult};
+use crate::renderer::error::RenderResult;
+#[cfg(test)]
+use crate::renderer::RenderError;
 
 /// Render backend trait
 ///
@@ -99,11 +101,11 @@ impl Default for RenderTransform {
 /// Material rendering properties
 #[derive(Debug, Clone, Copy)]
 pub struct RenderMaterial {
-    pub color: [f32; 4],     // RGBA
-    pub metallic: f32,       // 0-1
-    pub roughness: f32,      // 0-1
-    pub opacity: f32,        // 0-1
-    pub emissive: [f32; 3],  // RGB
+    pub color: [f32; 4],    // RGBA
+    pub metallic: f32,      // 0-1
+    pub roughness: f32,     // 0-1
+    pub opacity: f32,       // 0-1
+    pub emissive: [f32; 3], // RGB
 }
 
 impl Default for RenderMaterial {
@@ -146,10 +148,6 @@ impl MockBackend {
 
     pub fn object_count(&self) -> usize {
         self.objects.len()
-    }
-
-    pub fn get_object(&self, id: u64) -> Option<&MockObject> {
-        self.objects.get(&id)
     }
 }
 

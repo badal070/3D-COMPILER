@@ -2,7 +2,6 @@
 /// This is where DSL constructs become IR constructs.
 /// 1:1 mapping, no semantic interpretation.
 /// Pure function - validated AST in, IR out.
-
 use crate::ast::*;
 use crate::errors::{DslError, DslResult, ErrorCode};
 use serde::Serialize;
@@ -17,8 +16,9 @@ pub struct IrScene {
     pub entities: Vec<IrEntity>,
     pub constraints: Vec<IrConstraint>,
     pub motions: Vec<IrMotion>,
+    pub math_entities: Vec<IrMathEntity>,
+    pub compound_motions: Vec<IrCompoundMotion>,
     pub timelines: Vec<IrTimeline>,
-     
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +50,16 @@ pub enum IrValue {
     Identifier(String),
     Vector3([f64; 3]),
     Boolean(bool),
+    Matrix3([[f64; 3]; 3]),
+    List(Vec<IrValue>),
+    MathExpression(IrMathExpression),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrMathExpression {
+    pub expression_type: String,
+    pub source: String,
+    pub complexity: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +78,18 @@ pub struct IrMotion {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct IrCompoundMotion {
+    /// Identifier of this compound motion
+    pub id: String,
+    /// Composition type: sequential, parallel, conditional, etc.
+    pub compound_type: String,
+    /// Ordered list of referenced motion ids
+    pub motions: Vec<String>,
+    /// Additional parameters specific to the composition strategy
+    pub parameters: HashMap<String, IrValue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct IrTimeline {
     pub id: String,
     pub events: Vec<IrEvent>,
@@ -80,6 +102,85 @@ pub struct IrEvent {
     pub duration: f64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub enum IrMathEntity {
+    Function(IrFunctionNode),
+    Curve(IrCurveNode),
+    Surface(IrSurfaceNode),
+    Field(IrFieldNode),
+    Ode(IrOdeNode),
+    Transformation(IrTransformationNode),
+    Matrix(IrMatrixNode),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrMathDomain {
+    pub space: String,
+    pub variables: Vec<String>,
+    pub constraints: Vec<IrMathExpression>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrFunctionNode {
+    pub id: String,
+    pub parameters: Vec<String>,
+    pub body: IrMathExpression,
+    pub domain: IrMathDomain,
+    pub range_constraints: Vec<IrMathExpression>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrCurveNode {
+    pub id: String,
+    pub curve_type: String,
+    pub definition: IrMathExpression,
+    pub parameter: Option<String>,
+    pub domain: IrMathDomain,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrSurfaceNode {
+    pub id: String,
+    pub surface_type: String,
+    pub definition: IrMathExpression,
+    pub parameters: Option<(String, String)>,
+    pub domain: IrMathDomain,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrFieldNode {
+    pub id: String,
+    pub field_kind: String,
+    pub dimension: usize,
+    pub components: Vec<IrMathExpression>,
+    pub domain: IrMathDomain,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrOdeNode {
+    pub id: String,
+    pub ode_type: String,
+    pub order: usize,
+    pub equation: IrMathExpression,
+    pub initial_conditions: Vec<IrMathExpression>,
+    pub boundary_conditions: Vec<IrMathExpression>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrTransformationNode {
+    pub id: String,
+    pub transform_type: String,
+    pub expression: IrMathExpression,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrMatrixNode {
+    pub id: String,
+    pub rows: usize,
+    pub cols: usize,
+    pub elements: Vec<Vec<IrMathExpression>>,
+}
+
 /// Lowers a validated AST to IR
 pub struct IrLowering;
 
@@ -89,6 +190,8 @@ impl IrLowering {
         let entities = Self::lower_entities(ast.entities)?;
         let constraints = Self::lower_constraints(ast.constraints)?;
         let motions = Self::lower_motions(ast.motions)?;
+        let math_entities = Self::lower_math_objects(ast.math_objects);
+        let compound_motions = Self::lower_compound_motions(ast.compound_motions)?;
         let timelines = Self::lower_timelines(ast.timelines)?;
 
         Ok(IrScene {
@@ -96,6 +199,8 @@ impl IrLowering {
             entities,
             constraints,
             motions,
+            math_entities,
+            compound_motions,
             timelines,
         })
     }
@@ -106,7 +211,11 @@ impl IrLowering {
             version: scene.version,
             ir_version: scene.ir_version.clone(),
             unit_system: scene.unit_system.clone(),
-            libraries: imports.imports.iter().map(|i| i.library_name.clone()).collect(),
+            libraries: imports
+                .imports
+                .iter()
+                .map(|i| i.library_name.clone())
+                .collect(),
         }
     }
 
@@ -205,6 +314,60 @@ impl IrLowering {
             .collect()
     }
 
+    fn lower_compound_motions(
+        compound_motions: Vec<AstCompoundMotion>,
+    ) -> DslResult<Vec<IrCompoundMotion>> {
+        compound_motions
+            .into_iter()
+            .map(|compound| {
+                let mut parameters = HashMap::new();
+                let mut compound_type = String::new();
+                let mut motions: Vec<String> = Vec::new();
+
+                for field in compound.fields {
+                    match field.name.as_str() {
+                        "type" => {
+                            if let AstValue::Identifier(type_name, _) = field.value {
+                                compound_type = type_name;
+                            }
+                        }
+                        "motions" => match field.value {
+                            AstValue::String(list, _) => {
+                                motions = list
+                                    .split(',')
+                                    .map(|m| m.trim().to_string())
+                                    .filter(|m| !m.is_empty())
+                                    .collect();
+                            }
+                            AstValue::List(values, _) => {
+                                motions = values
+                                    .into_iter()
+                                    .filter_map(|value| match value {
+                                        AstValue::Identifier(id, _) => Some(id),
+                                        AstValue::String(s, _) => Some(s),
+                                        _ => None,
+                                    })
+                                    .collect();
+                            }
+                            _ => {}
+                        },
+                        _ => {
+                            let value = Self::lower_value(field.value)?;
+                            parameters.insert(field.name, value);
+                        }
+                    }
+                }
+
+                Ok(IrCompoundMotion {
+                    id: compound.name,
+                    compound_type,
+                    motions,
+                    parameters,
+                })
+            })
+            .collect()
+    }
+
     fn lower_timelines(timelines: Vec<AstTimeline>) -> DslResult<Vec<IrTimeline>> {
         timelines
             .into_iter()
@@ -233,6 +396,151 @@ impl IrLowering {
             .collect()
     }
 
+    fn lower_math_objects(math_objects: Vec<MathObjectNode>) -> Vec<IrMathEntity> {
+        math_objects
+            .into_iter()
+            .map(|node| match node {
+                MathObjectNode::Function(function) => IrMathEntity::Function(IrFunctionNode {
+                    id: function.name,
+                    parameters: function.parameters,
+                    body: Self::lower_math_expression(&function.body),
+                    domain: Self::lower_math_domain(function.domain),
+                    range_constraints: function
+                        .range
+                        .map(|range| {
+                            range
+                                .constraints
+                                .into_iter()
+                                .map(|constraint| {
+                                    Self::lower_math_expression(&constraint.expression)
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                }),
+                MathObjectNode::Curve(curve) => IrMathEntity::Curve(IrCurveNode {
+                    id: curve.name,
+                    curve_type: Self::curve_type_name(curve.curve_type).to_string(),
+                    definition: Self::lower_math_expression(&curve.definition),
+                    parameter: curve.parameter,
+                    domain: Self::lower_math_domain(curve.domain),
+                }),
+                MathObjectNode::Surface(surface) => IrMathEntity::Surface(IrSurfaceNode {
+                    id: surface.name,
+                    surface_type: Self::surface_type_name(surface.surface_type).to_string(),
+                    definition: Self::lower_math_expression(&surface.definition),
+                    parameters: surface.parameters,
+                    domain: Self::lower_math_domain(surface.domain),
+                }),
+                MathObjectNode::VectorField(field) => IrMathEntity::Field(IrFieldNode {
+                    id: field.name,
+                    field_kind: "vector".to_string(),
+                    dimension: field.dimension,
+                    components: field
+                        .components
+                        .iter()
+                        .map(Self::lower_math_expression)
+                        .collect(),
+                    domain: Self::lower_math_domain(field.domain),
+                }),
+                MathObjectNode::ScalarField(field) => IrMathEntity::Field(IrFieldNode {
+                    id: field.name,
+                    field_kind: "scalar".to_string(),
+                    dimension: 1,
+                    components: vec![Self::lower_math_expression(&field.expression)],
+                    domain: Self::lower_math_domain(field.domain),
+                }),
+                MathObjectNode::Transformation(transform) => {
+                    IrMathEntity::Transformation(IrTransformationNode {
+                        id: transform.name,
+                        transform_type: Self::transformation_type_name(transform.transform_type)
+                            .to_string(),
+                        expression: Self::lower_math_expression(&transform.expression),
+                    })
+                }
+                MathObjectNode::DifferentialEquation(ode) => IrMathEntity::Ode(IrOdeNode {
+                    id: ode.name,
+                    ode_type: Self::differential_equation_type_name(ode.equation_type).to_string(),
+                    order: ode.order,
+                    equation: Self::lower_math_expression(&ode.equation),
+                    initial_conditions: ode
+                        .initial_conditions
+                        .iter()
+                        .map(|condition| Self::lower_math_expression(&condition.expression))
+                        .collect(),
+                    boundary_conditions: ode
+                        .boundary_conditions
+                        .iter()
+                        .map(|condition| Self::lower_math_expression(&condition.expression))
+                        .collect(),
+                }),
+                MathObjectNode::MatrixDefinition(matrix) => IrMathEntity::Matrix(IrMatrixNode {
+                    id: matrix.name,
+                    rows: matrix.rows,
+                    cols: matrix.cols,
+                    elements: matrix
+                        .elements
+                        .iter()
+                        .map(|row| row.iter().map(Self::lower_math_expression).collect())
+                        .collect(),
+                }),
+            })
+            .collect()
+    }
+
+    fn lower_math_domain(domain: DomainConstraint) -> IrMathDomain {
+        IrMathDomain {
+            space: Self::math_space_name(domain.space).to_string(),
+            variables: domain.variables,
+            constraints: domain
+                .constraints
+                .iter()
+                .map(|constraint| Self::lower_math_expression(&constraint.expression))
+                .collect(),
+        }
+    }
+
+    fn curve_type_name(curve_type: CurveType) -> &'static str {
+        match curve_type {
+            CurveType::Explicit => "explicit",
+            CurveType::Implicit => "implicit",
+            CurveType::Parametric => "parametric",
+            CurveType::Polar => "polar",
+        }
+    }
+
+    fn surface_type_name(surface_type: SurfaceType) -> &'static str {
+        match surface_type {
+            SurfaceType::Explicit => "explicit",
+            SurfaceType::Implicit => "implicit",
+            SurfaceType::Parametric => "parametric",
+        }
+    }
+
+    fn transformation_type_name(transform_type: TransformationType) -> &'static str {
+        match transform_type {
+            TransformationType::Linear => "linear",
+            TransformationType::Affine => "affine",
+            TransformationType::NonLinear => "non_linear",
+        }
+    }
+
+    fn differential_equation_type_name(equation_type: DifferentialEquationType) -> &'static str {
+        match equation_type {
+            DifferentialEquationType::Ode => "ode",
+            DifferentialEquationType::Pde => "pde",
+        }
+    }
+
+    fn math_space_name(space: MathSpace) -> &'static str {
+        match space {
+            MathSpace::Real => "real",
+            MathSpace::Real2 => "real2",
+            MathSpace::Real3 => "real3",
+            MathSpace::Complex => "complex",
+        }
+    }
+
     fn lower_value(value: AstValue) -> DslResult<IrValue> {
         match value {
             AstValue::Number(n, _) => Ok(IrValue::Number(n)),
@@ -255,6 +563,203 @@ impl IrLowering {
                     ));
                 }
                 Ok(IrValue::Vector3([vec[0], vec[1], vec[2]]))
+            }
+            AstValue::Matrix(matrix, span) => {
+                if matrix.len() != 3 || matrix.iter().any(|row| row.len() != 3) {
+                    return Err(DslError::new(
+                        ErrorCode::InvalidFieldType,
+                        format!(
+                            "Expected 3x3 matrix, found {}x{}",
+                            matrix.len(),
+                            matrix.get(0).map(|row| row.len()).unwrap_or(0)
+                        ),
+                        span,
+                        std::path::PathBuf::from("lowering"),
+                    ));
+                }
+                Ok(IrValue::Matrix3([
+                    [matrix[0][0], matrix[0][1], matrix[0][2]],
+                    [matrix[1][0], matrix[1][1], matrix[1][2]],
+                    [matrix[2][0], matrix[2][1], matrix[2][2]],
+                ]))
+            }
+            AstValue::List(values, _) => {
+                let mut lowered = Vec::with_capacity(values.len());
+                for value in values {
+                    lowered.push(Self::lower_value(value)?);
+                }
+                Ok(IrValue::List(lowered))
+            }
+            AstValue::MathExpression(expr, _) => {
+                Ok(IrValue::MathExpression(Self::lower_math_expression(&expr)))
+            }
+        }
+    }
+
+    fn lower_math_expression(expr: &MathExpression) -> IrMathExpression {
+        IrMathExpression {
+            expression_type: Self::math_expr_kind(expr).to_string(),
+            source: Self::math_expr_to_string(expr),
+            complexity: Self::math_expr_complexity(expr),
+        }
+    }
+
+    fn math_expr_kind(expr: &MathExpression) -> &'static str {
+        match expr {
+            MathExpression::Variable(_) => "variable",
+            MathExpression::Constant(_) => "constant",
+            MathExpression::Number(_) => "number",
+            MathExpression::ComplexNumber { .. } => "complex_number",
+            MathExpression::BinaryOp(..) => "binary",
+            MathExpression::UnaryOp(..) => "unary",
+            MathExpression::FunctionCall(..) => "function_call",
+            MathExpression::Derivative { .. } => "derivative",
+            MathExpression::Integral { .. } => "integral",
+            MathExpression::Limit { .. } => "limit",
+            MathExpression::Summation { .. } => "summation",
+            MathExpression::Product { .. } => "product",
+            MathExpression::Piecewise(_) => "piecewise",
+            MathExpression::MatrixExpr(_) => "matrix",
+            MathExpression::VectorExpr(_) => "vector",
+        }
+    }
+
+    fn math_expr_to_string(expr: &MathExpression) -> String {
+        match expr {
+            MathExpression::Variable(v) => v.clone(),
+            MathExpression::Constant(c) => match c {
+                crate::ast::MathConstant::Pi => "pi".to_string(),
+                crate::ast::MathConstant::Euler => "e".to_string(),
+                crate::ast::MathConstant::ImaginaryUnit => "i".to_string(),
+                crate::ast::MathConstant::Infinity => "inf".to_string(),
+            },
+            MathExpression::Number(n) => n.to_string(),
+            MathExpression::ComplexNumber { real, imag } => format!("{}+{}i", real, imag),
+            MathExpression::BinaryOp(lhs, op, rhs) => format!(
+                "({} {:?} {})",
+                Self::math_expr_to_string(lhs),
+                op,
+                Self::math_expr_to_string(rhs)
+            ),
+            MathExpression::UnaryOp(op, value) => {
+                format!("({:?} {})", op, Self::math_expr_to_string(value))
+            }
+            MathExpression::FunctionCall(name, args) => format!(
+                "{}({})",
+                name,
+                args.iter()
+                    .map(Self::math_expr_to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            MathExpression::Derivative {
+                expression,
+                variable,
+                order,
+            } => format!(
+                "derivative({}, {}, {})",
+                Self::math_expr_to_string(expression),
+                variable,
+                order
+            ),
+            MathExpression::Integral {
+                expression,
+                variable,
+                bounds,
+            } => {
+                if let Some(b) = bounds {
+                    format!(
+                        "integral({}, {}, {}, {})",
+                        Self::math_expr_to_string(expression),
+                        variable,
+                        Self::math_expr_to_string(&b.lower),
+                        Self::math_expr_to_string(&b.upper)
+                    )
+                } else {
+                    format!(
+                        "integral({}, {})",
+                        Self::math_expr_to_string(expression),
+                        variable
+                    )
+                }
+            }
+            MathExpression::Limit {
+                expression,
+                variable,
+                approach,
+            } => format!(
+                "limit({}, {}, {})",
+                Self::math_expr_to_string(expression),
+                variable,
+                approach
+            ),
+            MathExpression::Summation {
+                expression,
+                variable,
+                bounds,
+            } => format!(
+                "sum({}, {}, {}, {})",
+                Self::math_expr_to_string(expression),
+                variable,
+                Self::math_expr_to_string(&bounds.lower),
+                Self::math_expr_to_string(&bounds.upper)
+            ),
+            MathExpression::Product {
+                expression,
+                variable,
+                bounds,
+            } => format!(
+                "product({}, {}, {}, {})",
+                Self::math_expr_to_string(expression),
+                variable,
+                Self::math_expr_to_string(&bounds.lower),
+                Self::math_expr_to_string(&bounds.upper)
+            ),
+            MathExpression::Piecewise(cases) => format!("piecewise[{} cases]", cases.len()),
+            MathExpression::MatrixExpr(rows) => format!(
+                "matrix[{}x{}]",
+                rows.len(),
+                rows.first().map_or(0, |r| r.len())
+            ),
+            MathExpression::VectorExpr(values) => format!("vector[{}]", values.len()),
+        }
+    }
+
+    fn math_expr_complexity(expr: &MathExpression) -> usize {
+        match expr {
+            MathExpression::Variable(_)
+            | MathExpression::Constant(_)
+            | MathExpression::Number(_)
+            | MathExpression::ComplexNumber { .. } => 1,
+            MathExpression::UnaryOp(_, v) => 1 + Self::math_expr_complexity(v),
+            MathExpression::BinaryOp(l, _, r) => {
+                1 + Self::math_expr_complexity(l) + Self::math_expr_complexity(r)
+            }
+            MathExpression::FunctionCall(_, args) => {
+                1 + args.iter().map(Self::math_expr_complexity).sum::<usize>()
+            }
+            MathExpression::Derivative { expression, .. }
+            | MathExpression::Integral { expression, .. }
+            | MathExpression::Limit { expression, .. }
+            | MathExpression::Summation { expression, .. }
+            | MathExpression::Product { expression, .. } => {
+                1 + Self::math_expr_complexity(expression)
+            }
+            MathExpression::Piecewise(cases) => {
+                1 + cases
+                    .iter()
+                    .map(|(_, expr)| Self::math_expr_complexity(expr))
+                    .sum::<usize>()
+            }
+            MathExpression::MatrixExpr(rows) => {
+                1 + rows
+                    .iter()
+                    .flat_map(|row| row.iter())
+                    .map(Self::math_expr_complexity)
+                    .sum::<usize>()
+            }
+            MathExpression::VectorExpr(values) => {
+                1 + values.iter().map(Self::math_expr_complexity).sum::<usize>()
             }
         }
     }
@@ -304,6 +809,17 @@ impl IrScene {
                     }).collect::<serde_json::Map<_, _>>(),
                 })
             }).collect::<Vec<_>>(),
+            "math_entities": self.math_entities.iter().map(Self::math_entity_to_json).collect::<Vec<_>>(),
+            "compound_motions": self.compound_motions.iter().map(|cm| {
+                serde_json::json!({
+                    "id": cm.id,
+                    "type": cm.compound_type,
+                    "motions": cm.motions,
+                    "parameters": cm.parameters.iter().map(|(k, v)| {
+                        (k.clone(), Self::value_to_json(v))
+                    }).collect::<serde_json::Map<_, _>>(),
+                })
+            }).collect::<Vec<_>>(),
             "timelines": self.timelines.iter().map(|t| {
                 serde_json::json!({
                     "id": t.id,
@@ -326,7 +842,95 @@ impl IrScene {
             IrValue::Identifier(id) => serde_json::json!(id),
             IrValue::Vector3(v) => serde_json::json!(v),
             IrValue::Boolean(b) => serde_json::json!(b),
+            IrValue::Matrix3(m) => serde_json::json!(m),
+            IrValue::List(values) => {
+                serde_json::json!(values.iter().map(Self::value_to_json).collect::<Vec<_>>())
+            }
+            IrValue::MathExpression(expr) => serde_json::json!({
+                "type": expr.expression_type,
+                "source": expr.source,
+                "complexity": expr.complexity,
+            }),
         }
+    }
+
+    fn math_entity_to_json(entity: &IrMathEntity) -> serde_json::Value {
+        match entity {
+            IrMathEntity::Function(node) => serde_json::json!({
+                "kind": "function",
+                "id": node.id,
+                "parameters": node.parameters,
+                "body": {
+                    "type": node.body.expression_type,
+                    "source": node.body.source,
+                    "complexity": node.body.complexity
+                },
+                "domain": Self::math_domain_to_json(&node.domain),
+                "range_constraints": node.range_constraints.iter().map(Self::math_expression_to_json).collect::<Vec<_>>(),
+            }),
+            IrMathEntity::Curve(node) => serde_json::json!({
+                "kind": "curve",
+                "id": node.id,
+                "curve_type": node.curve_type,
+                "definition": Self::math_expression_to_json(&node.definition),
+                "parameter": node.parameter,
+                "domain": Self::math_domain_to_json(&node.domain),
+            }),
+            IrMathEntity::Surface(node) => serde_json::json!({
+                "kind": "surface",
+                "id": node.id,
+                "surface_type": node.surface_type,
+                "definition": Self::math_expression_to_json(&node.definition),
+                "parameters": node.parameters,
+                "domain": Self::math_domain_to_json(&node.domain),
+            }),
+            IrMathEntity::Field(node) => serde_json::json!({
+                "kind": "field",
+                "id": node.id,
+                "field_kind": node.field_kind,
+                "dimension": node.dimension,
+                "components": node.components.iter().map(Self::math_expression_to_json).collect::<Vec<_>>(),
+                "domain": Self::math_domain_to_json(&node.domain),
+            }),
+            IrMathEntity::Ode(node) => serde_json::json!({
+                "kind": "ode",
+                "id": node.id,
+                "ode_type": node.ode_type,
+                "order": node.order,
+                "equation": Self::math_expression_to_json(&node.equation),
+                "initial_conditions": node.initial_conditions.iter().map(Self::math_expression_to_json).collect::<Vec<_>>(),
+                "boundary_conditions": node.boundary_conditions.iter().map(Self::math_expression_to_json).collect::<Vec<_>>(),
+            }),
+            IrMathEntity::Transformation(node) => serde_json::json!({
+                "kind": "transformation",
+                "id": node.id,
+                "transform_type": node.transform_type,
+                "expression": Self::math_expression_to_json(&node.expression),
+            }),
+            IrMathEntity::Matrix(node) => serde_json::json!({
+                "kind": "matrix",
+                "id": node.id,
+                "rows": node.rows,
+                "cols": node.cols,
+                "elements": node.elements.iter().map(|row| row.iter().map(Self::math_expression_to_json).collect::<Vec<_>>()).collect::<Vec<_>>(),
+            }),
+        }
+    }
+
+    fn math_domain_to_json(domain: &IrMathDomain) -> serde_json::Value {
+        serde_json::json!({
+            "space": domain.space,
+            "variables": domain.variables,
+            "constraints": domain.constraints.iter().map(Self::math_expression_to_json).collect::<Vec<_>>(),
+        })
+    }
+
+    fn math_expression_to_json(expr: &IrMathExpression) -> serde_json::Value {
+        serde_json::json!({
+            "type": expr.expression_type,
+            "source": expr.source,
+            "complexity": expr.complexity,
+        })
     }
 }
 
@@ -338,15 +942,15 @@ mod tests {
     #[test]
     fn test_value_lowering() {
         let span = SourceSpan::single_point(1, 1, 0);
-        
+
         let num = AstValue::Number(42.0, span);
         let ir_num = IrLowering::lower_value(num).unwrap();
         assert!(matches!(ir_num, IrValue::Number(42.0)));
-        
+
         let vec = AstValue::Vector(vec![1.0, 2.0, 3.0], span);
         let ir_vec = IrLowering::lower_value(vec).unwrap();
         assert!(matches!(ir_vec, IrValue::Vector3([1.0, 2.0, 3.0])));
-        
+
         let bool_true = AstValue::Identifier("true".to_string(), span);
         let ir_bool = IrLowering::lower_value(bool_true).unwrap();
         assert!(matches!(ir_bool, IrValue::Boolean(true)));
@@ -358,5 +962,77 @@ mod tests {
         let vec = AstValue::Vector(vec![1.0, 2.0], span);
         let result = IrLowering::lower_value(vec);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_lower_math_objects_to_explicit_ir_entities() {
+        let s = SourceSpan::single_point(1, 1, 0);
+        let domain = DomainConstraint {
+            variables: vec!["x".to_string()],
+            constraints: vec![],
+            space: MathSpace::Real,
+        };
+
+        let ast = AstFile {
+            scene: AstScene {
+                name: "math_scene".to_string(),
+                version: 1,
+                ir_version: "0.1.0".to_string(),
+                unit_system: "SI".to_string(),
+                domain: Some("math".to_string()),
+                span: s,
+            },
+            library_imports: AstLibraryImports {
+                imports: vec![],
+                span: s,
+            },
+            materials: vec![],
+            fields: vec![],
+            entities: vec![],
+            constraints: vec![],
+            motions: vec![],
+            math_objects: vec![
+                MathObjectNode::Function(FunctionNode {
+                    name: "f".to_string(),
+                    parameters: vec!["x".to_string()],
+                    body: MathExpression::Variable("x".to_string()),
+                    domain: domain.clone(),
+                    range: None,
+                    properties: FunctionProperties {
+                        continuous: true,
+                        differentiable_order: None,
+                        periodic: None,
+                        symmetric: None,
+                        monotonic: None,
+                    },
+                    span: s,
+                }),
+                MathObjectNode::ScalarField(ScalarFieldNode {
+                    name: "phi".to_string(),
+                    expression: MathExpression::Number(3.0),
+                    domain: domain.clone(),
+                    span: s,
+                }),
+                MathObjectNode::DifferentialEquation(DifferentialEquationNode {
+                    name: "ode1".to_string(),
+                    equation_type: DifferentialEquationType::Ode,
+                    order: 1,
+                    equation: MathExpression::Variable("x".to_string()),
+                    initial_conditions: vec![],
+                    boundary_conditions: vec![],
+                    span: s,
+                }),
+            ],
+            compound_motions: vec![],
+            trajectories: vec![],
+            timelines: vec![],
+            span: s,
+        };
+
+        let ir = IrLowering::lower(ast).expect("lowering should succeed");
+        assert_eq!(ir.math_entities.len(), 3);
+        assert!(matches!(ir.math_entities[0], IrMathEntity::Function(_)));
+        assert!(matches!(ir.math_entities[1], IrMathEntity::Field(_)));
+        assert!(matches!(ir.math_entities[2], IrMathEntity::Ode(_)));
     }
 }

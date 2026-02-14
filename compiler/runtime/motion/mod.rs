@@ -4,11 +4,11 @@
 pub mod integrator;
 pub mod sampler;
 
-pub use integrator::{Integrator, IntegrationMethod, IntegrationResult};
+pub use integrator::{IntegrationMethod, IntegrationResult, Integrator};
 pub use sampler::{MotionSampler, SamplePoint};
 
 use crate::error::RuntimeResult;
-use crate::state::{WorldState, ObjectState};
+use crate::state::{ObjectState, WorldState};
 
 /// Motion system - handles all motion updates
 pub struct MotionSystem {

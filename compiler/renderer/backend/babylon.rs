@@ -61,18 +61,19 @@ impl BabylonBackend {
             .ok_or(RenderError::BackendInit("No document".into()))?;
         let canvas = document
             .get_element_by_id(canvas_id)
-            .ok_or(RenderError::BackendInit(format!("Canvas {} not found", canvas_id)))?;
+            .ok_or(RenderError::BackendInit(format!(
+                "Canvas {} not found",
+                canvas_id
+            )))?;
 
         // Create engine
         let engine_args = Array::new();
         engine_args.push(&canvas);
         engine_args.push(&JsValue::TRUE); // antialias
 
-        let engine = js_sys::Reflect::construct(
-            &js_sys::eval("BABYLON.Engine").unwrap(),
-            &engine_args,
-        )
-        .map_err(|_| RenderError::BackendInit("Failed to create Babylon engine".into()))?;
+        let engine =
+            js_sys::Reflect::construct(&js_sys::eval("BABYLON.Engine").unwrap(), &engine_args)
+                .map_err(|_| RenderError::BackendInit("Failed to create Babylon engine".into()))?;
 
         // Create scene
         let scene_args = Array::new();
@@ -153,10 +154,20 @@ impl BabylonBackend {
             RenderGeometry::Sphere { radius, segments } => {
                 let args = Array::new();
                 args.push(&"sphere".into());
-                
+
                 let options = js_sys::Object::new();
-                js_sys::Reflect::set(&options, &"diameter".into(), &JsValue::from_f64(*radius as f64 * 2.0)).ok();
-                js_sys::Reflect::set(&options, &"segments".into(), &JsValue::from_f64(*segments as f64)).ok();
+                js_sys::Reflect::set(
+                    &options,
+                    &"diameter".into(),
+                    &JsValue::from_f64(*radius as f64 * 2.0),
+                )
+                .ok();
+                js_sys::Reflect::set(
+                    &options,
+                    &"segments".into(),
+                    &JsValue::from_f64(*segments as f64),
+                )
+                .ok();
                 args.push(&options);
                 args.push(&self.scene_handle);
 
@@ -167,14 +178,25 @@ impl BabylonBackend {
                 .map_err(|_| RenderError::GeometryCreation)?
             }
 
-            RenderGeometry::Box { width, height, depth } => {
+            RenderGeometry::Box {
+                width,
+                height,
+                depth,
+            } => {
                 let args = Array::new();
                 args.push(&"box".into());
-                
+
                 let options = js_sys::Object::new();
-                js_sys::Reflect::set(&options, &"width".into(), &JsValue::from_f64(*width as f64)).ok();
-                js_sys::Reflect::set(&options, &"height".into(), &JsValue::from_f64(*height as f64)).ok();
-                js_sys::Reflect::set(&options, &"depth".into(), &JsValue::from_f64(*depth as f64)).ok();
+                js_sys::Reflect::set(&options, &"width".into(), &JsValue::from_f64(*width as f64))
+                    .ok();
+                js_sys::Reflect::set(
+                    &options,
+                    &"height".into(),
+                    &JsValue::from_f64(*height as f64),
+                )
+                .ok();
+                js_sys::Reflect::set(&options, &"depth".into(), &JsValue::from_f64(*depth as f64))
+                    .ok();
                 args.push(&options);
                 args.push(&self.scene_handle);
 
@@ -185,14 +207,33 @@ impl BabylonBackend {
                 .map_err(|_| RenderError::GeometryCreation)?
             }
 
-            RenderGeometry::Cylinder { radius, height, segments } => {
+            RenderGeometry::Cylinder {
+                radius,
+                height,
+                segments,
+            } => {
                 let args = Array::new();
                 args.push(&"cylinder".into());
-                
+
                 let options = js_sys::Object::new();
-                js_sys::Reflect::set(&options, &"diameter".into(), &JsValue::from_f64(*radius as f64 * 2.0)).ok();
-                js_sys::Reflect::set(&options, &"height".into(), &JsValue::from_f64(*height as f64)).ok();
-                js_sys::Reflect::set(&options, &"tessellation".into(), &JsValue::from_f64(*segments as f64)).ok();
+                js_sys::Reflect::set(
+                    &options,
+                    &"diameter".into(),
+                    &JsValue::from_f64(*radius as f64 * 2.0),
+                )
+                .ok();
+                js_sys::Reflect::set(
+                    &options,
+                    &"height".into(),
+                    &JsValue::from_f64(*height as f64),
+                )
+                .ok();
+                js_sys::Reflect::set(
+                    &options,
+                    &"tessellation".into(),
+                    &JsValue::from_f64(*segments as f64),
+                )
+                .ok();
                 args.push(&options);
                 args.push(&self.scene_handle);
 
@@ -206,10 +247,16 @@ impl BabylonBackend {
             RenderGeometry::Plane { width, height } => {
                 let args = Array::new();
                 args.push(&"plane".into());
-                
+
                 let options = js_sys::Object::new();
-                js_sys::Reflect::set(&options, &"width".into(), &JsValue::from_f64(*width as f64)).ok();
-                js_sys::Reflect::set(&options, &"height".into(), &JsValue::from_f64(*height as f64)).ok();
+                js_sys::Reflect::set(&options, &"width".into(), &JsValue::from_f64(*width as f64))
+                    .ok();
+                js_sys::Reflect::set(
+                    &options,
+                    &"height".into(),
+                    &JsValue::from_f64(*height as f64),
+                )
+                .ok();
                 args.push(&options);
                 args.push(&self.scene_handle);
 
@@ -233,7 +280,7 @@ impl BabylonBackend {
 
                 let args = Array::new();
                 args.push(&"lines".into());
-                
+
                 let options = js_sys::Object::new();
                 js_sys::Reflect::set(&options, &"points".into(), &points_array).ok();
                 args.push(&options);
@@ -265,11 +312,9 @@ impl BabylonBackend {
         args.push(&"material".into());
         args.push(&self.scene_handle);
 
-        let mat = js_sys::Reflect::construct(
-            &js_sys::eval("BABYLON.StandardMaterial").unwrap(),
-            &args,
-        )
-        .map_err(|_| RenderError::MaterialCreation)?;
+        let mat =
+            js_sys::Reflect::construct(&js_sys::eval("BABYLON.StandardMaterial").unwrap(), &args)
+                .map_err(|_| RenderError::MaterialCreation)?;
 
         // Diffuse color
         let color = js_sys::eval(&format!(
@@ -280,8 +325,12 @@ impl BabylonBackend {
         js_sys::Reflect::set(&mat, &"diffuseColor".into(), &color).ok();
 
         // Alpha
-        js_sys::Reflect::set(&mat, &"alpha".into(), &JsValue::from_f64(material.opacity as f64))
-            .ok();
+        js_sys::Reflect::set(
+            &mat,
+            &"alpha".into(),
+            &JsValue::from_f64(material.opacity as f64),
+        )
+        .ok();
 
         // Metallic/roughness (approximated)
         js_sys::Reflect::set(
@@ -407,11 +456,19 @@ impl RenderBackend for BabylonBackend {
             if highlighted {
                 let glow_color = js_sys::eval("new BABYLON.Color3(0.2, 0.4, 1.0)").unwrap();
                 js_sys::Reflect::set(&obj.js_mesh, &"outlineColor".into(), &glow_color).ok();
-                js_sys::Reflect::set(&obj.js_mesh, &"outlineWidth".into(), &JsValue::from_f64(0.1))
-                    .ok();
+                js_sys::Reflect::set(
+                    &obj.js_mesh,
+                    &"outlineWidth".into(),
+                    &JsValue::from_f64(0.1),
+                )
+                .ok();
             } else {
-                js_sys::Reflect::set(&obj.js_mesh, &"outlineWidth".into(), &JsValue::from_f64(0.0))
-                    .ok();
+                js_sys::Reflect::set(
+                    &obj.js_mesh,
+                    &"outlineWidth".into(),
+                    &JsValue::from_f64(0.0),
+                )
+                .ok();
             }
         }
 
@@ -419,17 +476,17 @@ impl RenderBackend for BabylonBackend {
     }
 
     fn remove_object(&mut self, id: u64) -> RenderResult<()> {
-        let obj = self
+        let _obj = self
             .objects
             .remove(&id)
             .ok_or(RenderError::ObjectNotFound(id))?;
 
         #[cfg(target_arch = "wasm32")]
         {
-            let dispose = js_sys::Reflect::get(&obj.js_mesh, &"dispose".into()).unwrap();
+            let dispose = js_sys::Reflect::get(&_obj.js_mesh, &"dispose".into()).unwrap();
             js_sys::Reflect::apply(
                 &dispose.dyn_into::<js_sys::Function>().unwrap(),
-                &obj.js_mesh,
+                &_obj.js_mesh,
                 &js_sys::Array::new(),
             )
             .ok();
@@ -472,7 +529,8 @@ impl BabylonBackend {
         let sy = (matrix[4] * matrix[4] + matrix[5] * matrix[5] + matrix[6] * matrix[6]).sqrt();
         let sz = (matrix[8] * matrix[8] + matrix[9] * matrix[9] + matrix[10] * matrix[10]).sqrt();
 
-        let scaling = js_sys::eval(&format!("new BABYLON.Vector3({}, {}, {})", sx, sy, sz)).unwrap();
+        let scaling =
+            js_sys::eval(&format!("new BABYLON.Vector3({}, {}, {})", sx, sy, sz)).unwrap();
         js_sys::Reflect::set(mesh, &"scaling".into(), &scaling).ok();
 
         // For rotation, we'd need to convert the rotation matrix to Euler/Quaternion

@@ -1,5 +1,5 @@
 use crate::entity::Entity;
-use crate::motion::Motion;
+use crate::motion::{Motion, MotionKind};
 use crate::timeline::Timeline;
 use crate::constraint::Constraint;
 use crate::ids::{EntityId, MotionId};
@@ -52,6 +52,14 @@ impl Scene {
             if self.get_entity(motion.target).is_none() {
                 return Err(format!("Motion {} targets non-existent entity {}", motion.id, motion.target));
             }
+            for referenced in motion_references(&motion.kind) {
+                if self.get_motion(referenced).is_none() {
+                    return Err(format!(
+                        "Motion {} references non-existent motion {}",
+                        motion.id, referenced
+                    ));
+                }
+            }
         }
 
         // Validate all timeline events reference existing motions
@@ -90,11 +98,121 @@ impl Scene {
                         return Err(format!("Constraint references non-existent entity {}", entity_b));
                     }
                 }
+                Constraint::Spring(spring) => {
+                    if self.get_entity(spring.entity_a).is_none() {
+                        return Err(format!(
+                            "Spring constraint references non-existent entity {}",
+                            spring.entity_a
+                        ));
+                    }
+                    if self.get_entity(spring.entity_b).is_none() {
+                        return Err(format!(
+                            "Spring constraint references non-existent entity {}",
+                            spring.entity_b
+                        ));
+                    }
+                }
+                Constraint::Pendulum(pendulum) => {
+                    if self.get_entity(pendulum.entity).is_none() {
+                        return Err(format!(
+                            "Pendulum constraint references non-existent entity {}",
+                            pendulum.entity
+                        ));
+                    }
+                }
+                Constraint::Collision(collision) => {
+                    if self.get_entity(collision.entity_a).is_none() {
+                        return Err(format!(
+                            "Collision constraint references non-existent entity {}",
+                            collision.entity_a
+                        ));
+                    }
+                    if self.get_entity(collision.entity_b).is_none() {
+                        return Err(format!(
+                            "Collision constraint references non-existent entity {}",
+                            collision.entity_b
+                        ));
+                    }
+                }
+                Constraint::ChemicalBond(bond) => {
+                    if self.get_entity(bond.atom_a).is_none() {
+                        return Err(format!(
+                            "Chemical bond constraint references non-existent atom {}",
+                            bond.atom_a
+                        ));
+                    }
+                    if self.get_entity(bond.atom_b).is_none() {
+                        return Err(format!(
+                            "Chemical bond constraint references non-existent atom {}",
+                            bond.atom_b
+                        ));
+                    }
+                }
+                Constraint::BondAngle(angle) => {
+                    if self.get_entity(angle.atom_a).is_none() {
+                        return Err(format!(
+                            "Bond angle constraint references non-existent atom {}",
+                            angle.atom_a
+                        ));
+                    }
+                    if self.get_entity(angle.atom_b).is_none() {
+                        return Err(format!(
+                            "Bond angle constraint references non-existent atom {}",
+                            angle.atom_b
+                        ));
+                    }
+                    if self.get_entity(angle.atom_c).is_none() {
+                        return Err(format!(
+                            "Bond angle constraint references non-existent atom {}",
+                            angle.atom_c
+                        ));
+                    }
+                }
+                Constraint::JointLimit(limit) => {
+                    if self.get_entity(limit.joint).is_none() {
+                        return Err(format!(
+                            "Joint limit constraint references non-existent joint {}",
+                            limit.joint
+                        ));
+                    }
+                }
+                Constraint::KinematicChain(chain) => {
+                    for joint in &chain.joints {
+                        if self.get_entity(*joint).is_none() {
+                            return Err(format!(
+                                "Kinematic chain constraint references non-existent joint {}",
+                                joint
+                            ));
+                        }
+                    }
+                    if self.get_entity(chain.end_effector_target).is_none() {
+                        return Err(format!(
+                            "Kinematic chain constraint references non-existent target {}",
+                            chain.end_effector_target
+                        ));
+                    }
+                }
                 _ => {}
             }
         }
 
         Ok(())
+    }
+}
+
+fn motion_references(kind: &MotionKind) -> Vec<MotionId> {
+    match kind {
+        MotionKind::Sequential(motion) => motion.motions.clone(),
+        MotionKind::Parallel(motion) => motion.motions.clone(),
+        MotionKind::Damped(motion) => vec![motion.base_motion],
+        MotionKind::Periodic(motion) => vec![motion.base_motion],
+        MotionKind::Eased(motion) => vec![motion.base_motion],
+        MotionKind::Oscillation(_) => Vec::new(),
+        MotionKind::Orbital(_) => Vec::new(),
+        MotionKind::Parametric(_) => Vec::new(),
+        MotionKind::Rotation { .. } => Vec::new(),
+        MotionKind::Translation { .. } => Vec::new(),
+        MotionKind::Scale { .. } => Vec::new(),
     }
 }
 

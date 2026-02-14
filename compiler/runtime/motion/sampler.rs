@@ -5,7 +5,7 @@
 // Renderer follows runtime, not the other way around
 
 use crate::error::RuntimeResult;
-use crate::state::{WorldState, ObjectId, ObjectState, Vector3, Quaternion};
+use crate::state::{ObjectId, ObjectState, Quaternion, Vector3, WorldState};
 use std::collections::HashMap;
 
 /// Motion sampler - samples object states at arbitrary times
@@ -193,7 +193,12 @@ impl MotionSampler {
         }
     }
 
-    fn extrapolate_forward(&self, id: &ObjectId, snapshot: &StateSnapshot, time: f64) -> SamplePoint {
+    fn extrapolate_forward(
+        &self,
+        id: &ObjectId,
+        snapshot: &StateSnapshot,
+        time: f64,
+    ) -> SamplePoint {
         let dt = time - snapshot.time;
 
         // Extrapolate using velocity if available
@@ -219,7 +224,7 @@ impl MotionSampler {
     fn slerp_quaternion(&self, q1: &Quaternion, q2: &Quaternion, t: f64) -> Quaternion {
         // Simplified SLERP - proper implementation would handle dot product sign
         let dot = q1.w * q2.w + q1.x * q2.x + q1.y * q2.y + q1.z * q2.z;
-        
+
         // Linear interpolation for small angles (faster, good enough for small dt)
         if dot.abs() > 0.9995 {
             return Quaternion::new(

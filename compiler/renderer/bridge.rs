@@ -4,14 +4,10 @@
 //! No callbacks into runtime. No math evaluation. No constraint handling.
 
 use crate::renderer::{
-    adapter::Adapter,
-    backend::RenderBackend,
-    error::{RenderError, RenderResult},
-    interpolation::Interpolator,
-    scene_map::SceneMap,
-    sync::FrameSync,
-    visibility::VisibilityManager,
-    RendererConfig, RenderStats, RuntimeSnapshot,
+    adapter::Adapter, backend::RenderBackend, error::RenderResult, generate_function_mesh_2d,
+    generate_surface_mesh_3d, interpolation::Interpolator, scene_map::SceneMap, sync::FrameSync,
+    visibility::VisibilityManager, MaterialProperties, MathRenderable, ObjectState, RenderStats,
+    RendererConfig, RuntimeSnapshot, Transform,
 };
 
 /// The bridge between runtime state and visual rendering
@@ -80,7 +76,9 @@ impl RendererBridge {
         }
 
         // Process visibility and culling
-        let visible_objects = self.visibility.filter(&snapshot.objects, &snapshot.focus_ids);
+        let visible_objects = self
+            .visibility
+            .filter(&snapshot.objects, &snapshot.focus_ids);
 
         // Interpolate if enabled
         let render_objects = if self.config.interpolate {
@@ -97,7 +95,6 @@ impl RendererBridge {
 
         // Convert objects to render instructions
         let mut rendered = 0;
-        let mut culled = 0;
 
         for obj in &render_objects {
             // Check if object exists in scene
@@ -123,9 +120,34 @@ impl RendererBridge {
             }
         }
 
+        // Math renderables are generated through mesh_generator and dispatched like regular objects.
+        let generated_math_objects = self.generate_math_objects(snapshot);
+        for obj in &generated_math_objects {
+            if let Some(render_id) = self.scene_map.get(obj.id) {
+                if let Err(e) = self.update_object(render_id, obj) {
+                    log::error!("Failed to update math object {}: {:?}", obj.id, e);
+                }
+                rendered += 1;
+            } else {
+                match self.create_object(obj) {
+                    Ok(render_id) => {
+                        self.scene_map.insert(obj.id, render_id);
+                        rendered += 1;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create math object {}: {:?}", obj.id, e);
+                    }
+                }
+            }
+        }
+
         // Remove objects that no longer exist
-        let current_ids: std::collections::HashSet<_> =
-            snapshot.objects.iter().map(|o| o.id).collect();
+        let current_ids: std::collections::HashSet<_> = snapshot
+            .objects
+            .iter()
+            .map(|o| o.id)
+            .chain(generated_math_objects.iter().map(|o| o.id))
+            .collect();
         let removed = self.scene_map.cleanup(|id| !current_ids.contains(id));
 
         for render_id in removed {
@@ -135,7 +157,7 @@ impl RendererBridge {
             }
         }
 
-        culled = snapshot.objects.len() - rendered;
+        let culled = snapshot.objects.len().saturating_sub(rendered);
 
         // Update statistics
         let frame_time = frame_start.elapsed().as_secs_f64() * 1000.0;
@@ -195,9 +217,7 @@ impl RendererBridge {
         let material = self.adapter.convert_material(&obj.material);
 
         // Create in backend
-        let render_id = self
-            .backend
-            .create_object(geometry, transform, material)?;
+        let render_id = self.backend.create_object(geometry, transform, material)?;
 
         // Set visibility
         if !obj.visible {
@@ -245,6 +265,79 @@ impl RendererBridge {
         self.stats.avg_frame_time_ms =
             alpha * frame_time + (1.0 - alpha) * self.stats.avg_frame_time_ms;
     }
+
+    fn generate_math_objects(&self, snapshot: &RuntimeSnapshot) -> Vec<ObjectState> {
+        snapshot
+            .math_renderables
+            .iter()
+            .filter_map(|entry| self.math_renderable_to_object(entry))
+            .collect()
+    }
+
+    fn math_renderable_to_object(&self, renderable: &MathRenderable) -> Option<ObjectState> {
+        let (id, geometry) = match renderable {
+            MathRenderable::Function2D {
+                id,
+                domain,
+                resolution,
+                amplitude,
+                frequency,
+                phase,
+            } => {
+                let geom = generate_function_mesh_2d(
+                    |x| amplitude * (frequency * x + phase).sin(),
+                    *domain,
+                    *resolution,
+                )
+                .ok()?;
+                (*id, geom)
+            }
+            MathRenderable::Surface3D {
+                id,
+                domain_x,
+                domain_y,
+                resolution,
+                amplitude,
+                phase,
+            } => {
+                let geom = generate_surface_mesh_3d(
+                    |x, y| amplitude * ((x + phase).sin() * (y + phase).cos()),
+                    (*domain_x, *domain_y),
+                    *resolution,
+                )
+                .ok()?;
+                (*id, geom)
+            }
+            MathRenderable::Field2D {
+                id,
+                domain_x,
+                domain_y,
+                resolution,
+                scale,
+                phase,
+            } => {
+                let geom = generate_surface_mesh_3d(
+                    |x, y| {
+                        let mag = ((x + phase).powi(2) + (y + phase).powi(2)).sqrt();
+                        scale * mag
+                    },
+                    (*domain_x, *domain_y),
+                    *resolution,
+                )
+                .ok()?;
+                (*id, geom)
+            }
+        };
+
+        Some(ObjectState {
+            id,
+            geometry,
+            transform: Transform::default(),
+            material: MaterialProperties::default(),
+            visible: true,
+            highlighted: false,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -263,6 +356,7 @@ mod tests {
             tick: 1,
             timestamp: 0.0,
             objects: vec![],
+            math_renderables: vec![],
             focus_ids: vec![],
         };
 
@@ -285,11 +379,56 @@ mod tests {
             tick: 1,
             timestamp: 0.0,
             objects: vec![],
+            math_renderables: vec![],
             focus_ids: vec![],
         };
 
         let result = bridge.update(&snapshot);
         // Should not panic or propagate errors
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_bridge_dispatches_math_renderables() {
+        let backend = Box::new(MockBackend::new());
+        let config = RendererConfig::default();
+        let mut bridge = RendererBridge::new(backend, config);
+
+        let snapshot = RuntimeSnapshot {
+            tick: 1,
+            timestamp: 0.0,
+            objects: vec![],
+            math_renderables: vec![
+                MathRenderable::Function2D {
+                    id: 1001,
+                    domain: (-1.0, 1.0),
+                    resolution: 32,
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                },
+                MathRenderable::Surface3D {
+                    id: 1002,
+                    domain_x: (-1.0, 1.0),
+                    domain_y: (-1.0, 1.0),
+                    resolution: (8, 8),
+                    amplitude: 1.0,
+                    phase: 0.1,
+                },
+                MathRenderable::Field2D {
+                    id: 1003,
+                    domain_x: (-1.0, 1.0),
+                    domain_y: (-1.0, 1.0),
+                    resolution: (8, 8),
+                    scale: 0.5,
+                    phase: 0.0,
+                },
+            ],
+            focus_ids: vec![],
+        };
+
+        let result = bridge.update(&snapshot);
+        assert!(result.is_ok());
+        assert!(bridge.stats().objects_rendered >= 3);
     }
 }

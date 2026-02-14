@@ -1,0 +1,20 @@
+[plotting]
+default_resolution_2d = 1000
+default_resolution_3d = [100, 100]
+adaptive_sampling = true
+adaptive_tolerance = 0.01
+
+[colors]
+default_function_color = "#2196F3"
+default_grid_color = "#CCCCCC"
+default_axis_color = "#000000"
+
+[vector_fields]
+arrow_density = 20
+arrow_scale = 1.0
+streamline_integration_step = 0.01
+
+[scalar_fields]
+colormap = "viridis"
+num_contour_levels = 10
+isosurface_resolution = 100

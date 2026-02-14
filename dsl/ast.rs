@@ -1,7 +1,6 @@
 /// Abstract Syntax Tree definitions.
 /// Mirrors DSL structure exactly - no semantic interpretation.
 /// Preserves source spans for excellent error reporting.
-
 use crate::errors::SourceSpan;
 
 /// Complete DSL file representation
@@ -14,6 +13,7 @@ pub struct AstFile {
     pub entities: Vec<AstEntity>,
     pub constraints: Vec<AstConstraint>,
     pub motions: Vec<AstMotion>,
+    pub math_objects: Vec<MathObjectNode>,
     pub compound_motions: Vec<AstCompoundMotion>,
     pub trajectories: Vec<AstTrajectory>,
     pub timelines: Vec<AstTimeline>,
@@ -27,6 +27,7 @@ pub struct AstScene {
     pub version: i64,
     pub ir_version: String,
     pub unit_system: String,
+    pub domain: Option<String>,
     pub span: SourceSpan,
 }
 
@@ -72,8 +73,7 @@ impl AstFieldDef {
     }
 
     pub fn field_type(&self) -> Option<&str> {
-        self.get_field("type")
-            .and_then(|f| f.value.as_identifier())
+        self.get_field("type").and_then(|f| f.value.as_identifier())
     }
 }
 
@@ -91,18 +91,21 @@ impl AstCompoundMotion {
     }
 
     pub fn motion_type(&self) -> Option<&str> {
-        self.get_field("type")
-            .and_then(|f| f.value.as_identifier())
+        self.get_field("type").and_then(|f| f.value.as_identifier())
     }
 
     pub fn motion_list(&self) -> Vec<String> {
         self.get_field("motions")
-            .and_then(|f| {
-                if let AstValue::String(s, _) = &f.value {
-                    Some(s.split(',').map(|m| m.trim().to_string()).collect())
-                } else {
-                    None
-                }
+            .and_then(|f| f.value.as_list())
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|value| match value {
+                        AstValue::Identifier(id, _) => Some(id.clone()),
+                        AstValue::String(val, _) => Some(val.clone()),
+                        _ => None,
+                    })
+                    .collect()
             })
             .unwrap_or_default()
     }
@@ -122,8 +125,7 @@ impl AstTrajectory {
     }
 
     pub fn path_type(&self) -> Option<&str> {
-        self.get_field("type")
-            .and_then(|f| f.value.as_identifier())
+        self.get_field("type").and_then(|f| f.value.as_identifier())
     }
 
     pub fn target(&self) -> Option<&str> {
@@ -163,7 +165,10 @@ pub enum AstValue {
     Number(f64, SourceSpan),
     String(String, SourceSpan),
     Identifier(String, SourceSpan),
+    List(Vec<AstValue>, SourceSpan),
     Vector(Vec<f64>, SourceSpan),
+    Matrix(Vec<Vec<f64>>, SourceSpan),
+    MathExpression(MathExpression, SourceSpan),
 }
 
 impl AstValue {
@@ -172,7 +177,10 @@ impl AstValue {
             AstValue::Number(_, span)
             | AstValue::String(_, span)
             | AstValue::Identifier(_, span)
-            | AstValue::Vector(_, span) => *span,
+            | AstValue::List(_, span)
+            | AstValue::Vector(_, span)
+            | AstValue::Matrix(_, span)
+            | AstValue::MathExpression(_, span) => *span,
         }
     }
 
@@ -203,6 +211,283 @@ impl AstValue {
             _ => None,
         }
     }
+
+    pub fn as_list(&self) -> Option<&[AstValue]> {
+        match self {
+            AstValue::List(values, _) => Some(values),
+            _ => None,
+        }
+    }
+
+    pub fn as_matrix(&self) -> Option<&[Vec<f64>]> {
+        match self {
+            AstValue::Matrix(matrix, _) => Some(matrix),
+            _ => None,
+        }
+    }
+}
+
+/// Mathematical object AST nodes (Step 4: AST extension before parser wiring)
+#[derive(Debug, Clone)]
+pub enum MathObjectNode {
+    Function(FunctionNode),
+    Curve(CurveNode),
+    Surface(SurfaceNode),
+    VectorField(VectorFieldNode),
+    ScalarField(ScalarFieldNode),
+    Transformation(TransformationNode),
+    DifferentialEquation(DifferentialEquationNode),
+    MatrixDefinition(MatrixDefinitionNode),
+}
+
+#[derive(Debug, Clone)]
+pub enum MathExpression {
+    Variable(String),
+    Constant(MathConstant),
+    Number(f64),
+    ComplexNumber {
+        real: f64,
+        imag: f64,
+    },
+    BinaryOp(Box<MathExpression>, MathBinaryOperator, Box<MathExpression>),
+    UnaryOp(MathUnaryOperator, Box<MathExpression>),
+    FunctionCall(String, Vec<MathExpression>),
+    Derivative {
+        expression: Box<MathExpression>,
+        variable: String,
+        order: usize,
+    },
+    Integral {
+        expression: Box<MathExpression>,
+        variable: String,
+        bounds: Option<Box<IntervalConstraint>>,
+    },
+    Limit {
+        expression: Box<MathExpression>,
+        variable: String,
+        approach: f64,
+    },
+    Summation {
+        expression: Box<MathExpression>,
+        variable: String,
+        bounds: IntervalConstraint,
+    },
+    Product {
+        expression: Box<MathExpression>,
+        variable: String,
+        bounds: IntervalConstraint,
+    },
+    Piecewise(Vec<(MathCondition, MathExpression)>),
+    MatrixExpr(Vec<Vec<MathExpression>>),
+    VectorExpr(Vec<MathExpression>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathConstant {
+    Pi,
+    Euler,
+    ImaginaryUnit,
+    Infinity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathBinaryOperator {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Power,
+    Dot,
+    Cross,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathUnaryOperator {
+    Negate,
+    Gradient,
+    Divergence,
+    Curl,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionNode {
+    pub name: String,
+    pub parameters: Vec<String>,
+    pub body: MathExpression,
+    pub domain: DomainConstraint,
+    pub range: Option<RangeConstraint>,
+    pub properties: FunctionProperties,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct CurveNode {
+    pub name: String,
+    pub curve_type: CurveType,
+    pub definition: MathExpression,
+    pub parameter: Option<String>,
+    pub domain: DomainConstraint,
+    pub properties: CurveProperties,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct SurfaceNode {
+    pub name: String,
+    pub surface_type: SurfaceType,
+    pub definition: MathExpression,
+    pub parameters: Option<(String, String)>,
+    pub domain: DomainConstraint,
+    pub properties: SurfaceProperties,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct VectorFieldNode {
+    pub name: String,
+    pub components: Vec<MathExpression>,
+    pub dimension: usize,
+    pub domain: DomainConstraint,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScalarFieldNode {
+    pub name: String,
+    pub expression: MathExpression,
+    pub domain: DomainConstraint,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct TransformationNode {
+    pub name: String,
+    pub transform_type: TransformationType,
+    pub expression: MathExpression,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct DifferentialEquationNode {
+    pub name: String,
+    pub equation_type: DifferentialEquationType,
+    pub order: usize,
+    pub equation: MathExpression,
+    pub initial_conditions: Vec<MathCondition>,
+    pub boundary_conditions: Vec<MathCondition>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatrixDefinitionNode {
+    pub name: String,
+    pub rows: usize,
+    pub cols: usize,
+    pub elements: Vec<Vec<MathExpression>>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CurveType {
+    Explicit,
+    Implicit,
+    Parametric,
+    Polar,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceType {
+    Explicit,
+    Implicit,
+    Parametric,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformationType {
+    Linear,
+    Affine,
+    NonLinear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DifferentialEquationType {
+    Ode,
+    Pde,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionProperties {
+    pub continuous: bool,
+    pub differentiable_order: Option<usize>,
+    pub periodic: Option<f64>,
+    pub symmetric: Option<SymmetryType>,
+    pub monotonic: Option<MonotonicityType>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CurveProperties {
+    pub closed: bool,
+    pub smooth: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SurfaceProperties {
+    pub orientable: bool,
+    pub closed: bool,
+    pub genus: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymmetryType {
+    Even,
+    Odd,
+    Axis,
+    Origin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonotonicityType {
+    Increasing,
+    Decreasing,
+    NonMonotonic,
+}
+
+#[derive(Debug, Clone)]
+pub struct DomainConstraint {
+    pub variables: Vec<String>,
+    pub constraints: Vec<MathConstraint>,
+    pub space: MathSpace,
+}
+
+#[derive(Debug, Clone)]
+pub struct RangeConstraint {
+    pub constraints: Vec<MathConstraint>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MathConstraint {
+    pub expression: MathExpression,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathSpace {
+    Real,
+    Real2,
+    Real3,
+    Complex,
+}
+
+#[derive(Debug, Clone)]
+pub struct IntervalConstraint {
+    pub lower: Box<MathExpression>,
+    pub upper: Box<MathExpression>,
+    pub lower_inclusive: bool,
+    pub upper_inclusive: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MathCondition {
+    pub expression: MathExpression,
 }
 
 /// Constraint definition
@@ -219,8 +504,7 @@ impl AstConstraint {
     }
 
     pub fn constraint_type(&self) -> Option<&str> {
-        self.get_field("type")
-            .and_then(|f| f.value.as_identifier())
+        self.get_field("type").and_then(|f| f.value.as_identifier())
     }
 }
 
@@ -243,8 +527,7 @@ impl AstMotion {
     }
 
     pub fn motion_type(&self) -> Option<&str> {
-        self.get_field("type")
-            .and_then(|f| f.value.as_identifier())
+        self.get_field("type").and_then(|f| f.value.as_identifier())
     }
 }
 
@@ -274,38 +557,32 @@ impl AstEvent {
     }
 
     pub fn start(&self) -> Option<f64> {
-        self.get_field("start")
-            .and_then(|f| f.value.as_number())
+        self.get_field("start").and_then(|f| f.value.as_number())
     }
 
     pub fn duration(&self) -> Option<f64> {
-        self.get_field("duration")
-            .and_then(|f| f.value.as_number())
+        self.get_field("duration").and_then(|f| f.value.as_number())
     }
 }
 
 /// Helper trait for field lookup
 pub trait HasFields {
     fn get_field(&self, name: &str) -> Option<&AstField>;
-    
+
     fn get_string_field(&self, name: &str) -> Option<&str> {
-        self.get_field(name)
-            .and_then(|f| f.value.as_string())
+        self.get_field(name).and_then(|f| f.value.as_string())
     }
-    
+
     fn get_number_field(&self, name: &str) -> Option<f64> {
-        self.get_field(name)
-            .and_then(|f| f.value.as_number())
+        self.get_field(name).and_then(|f| f.value.as_number())
     }
-    
+
     fn get_identifier_field(&self, name: &str) -> Option<&str> {
-        self.get_field(name)
-            .and_then(|f| f.value.as_identifier())
+        self.get_field(name).and_then(|f| f.value.as_identifier())
     }
-    
+
     fn get_vector_field(&self, name: &str) -> Option<&[f64]> {
-        self.get_field(name)
-            .and_then(|f| f.value.as_vector())
+        self.get_field(name).and_then(|f| f.value.as_vector())
     }
 }
 
@@ -364,18 +641,18 @@ mod tests {
     #[test]
     fn test_value_accessors() {
         let span = SourceSpan::single_point(1, 1, 0);
-        
+
         let num_val = AstValue::Number(42.0, span);
         assert_eq!(num_val.as_number(), Some(42.0));
         assert_eq!(num_val.as_string(), None);
-        
+
         let str_val = AstValue::String("test".to_string(), span);
         assert_eq!(str_val.as_string(), Some("test"));
         assert_eq!(str_val.as_number(), None);
-        
+
         let id_val = AstValue::Identifier("cube".to_string(), span);
         assert_eq!(id_val.as_identifier(), Some("cube"));
-        
+
         let vec_val = AstValue::Vector(vec![1.0, 2.0, 3.0], span);
         assert_eq!(vec_val.as_vector(), Some(&[1.0, 2.0, 3.0][..]));
     }

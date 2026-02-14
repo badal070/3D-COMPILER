@@ -1,13 +1,13 @@
 // runtime/constraint/mod.rs
 // Constraint runtime system
 
-pub mod solver;
 pub mod enforcement;
 pub mod failure;
+pub mod solver;
 
-pub use solver::{ConstraintSolver, SolverConfig, SolverResult};
 pub use enforcement::{ConstraintEnforcer, EnforcementResult};
-pub use failure::{FailureClassifier, FailureAction};
+pub use failure::{FailureAction, FailureClassifier};
+pub use solver::{ConstraintSolver, SolverConfig, SolverResult};
 
 use crate::error::RuntimeResult;
 use crate::state::WorldState;

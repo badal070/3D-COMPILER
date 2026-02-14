@@ -1,6 +1,5 @@
 /// Error handling for the DSL compiler.
 /// Every error must be actionable, precise, and machine-readable.
-
 use std::fmt;
 use std::path::PathBuf;
 
@@ -66,6 +65,9 @@ pub enum ErrorCode {
     InvalidUnitSystem,
     VersionMismatch,
     InvalidVersionFormat,
+    InvalidMathDomain,
+    DimensionMismatch,
+    PotentialSingularity,
 
     // Reference errors (E300-E399)
     UndefinedEntity,
@@ -119,6 +121,9 @@ impl ErrorCode {
             ErrorCode::InvalidUnitSystem => 205,
             ErrorCode::VersionMismatch => 206,
             ErrorCode::InvalidVersionFormat => 207,
+            ErrorCode::InvalidMathDomain => 208,
+            ErrorCode::DimensionMismatch => 209,
+            ErrorCode::PotentialSingularity => 210,
 
             // Reference
             ErrorCode::UndefinedEntity => 300,
@@ -190,11 +195,7 @@ impl DslError {
         let mut output = String::new();
 
         // Header line
-        output.push_str(&format!(
-            "E{:03}: {}\n",
-            self.code.code(),
-            self.message
-        ));
+        output.push_str(&format!("E{:03}: {}\n", self.code.code(), self.message));
 
         // File location
         output.push_str(&format!(
@@ -211,22 +212,18 @@ impl DslError {
             let line_num_width = line_num.to_string().len();
 
             output.push_str(&format!("{:width$} |\n", "", width = line_num_width));
-            output.push_str(&format!(
-                "{} | {}\n",
-                line_num,
-                lines[line_num - 1]
-            ));
+            output.push_str(&format!("{} | {}\n", line_num, lines[line_num - 1]));
 
             // Underline the error
             output.push_str(&format!("{:width$} | ", "", width = line_num_width));
             output.push_str(&" ".repeat(self.span.start_col - 1));
-            
+
             let underline_len = if self.span.start_line == self.span.end_line {
                 (self.span.end_col - self.span.start_col).max(1)
             } else {
                 lines[line_num - 1].len() - self.span.start_col + 1
             };
-            
+
             output.push_str(&"^".repeat(underline_len));
             output.push_str(&format!(" {}\n", self.code.category()));
         }
@@ -267,9 +264,7 @@ pub struct ErrorCollector {
 
 impl ErrorCollector {
     pub fn new() -> Self {
-        Self {
-            errors: Vec::new(),
-        }
+        Self { errors: Vec::new() }
     }
 
     pub fn add(&mut self, error: DslError) {
@@ -321,8 +316,14 @@ mod tests {
         assert_eq!(ErrorCode::UnexpectedToken.category(), "Syntax Error");
         assert_eq!(ErrorCode::UnknownComponentType.category(), "Schema Error");
         assert_eq!(ErrorCode::UndefinedEntity.category(), "Reference Error");
-        assert_eq!(ErrorCode::InvalidVectorLength.category(), "Unit Validation Error");
-        assert_eq!(ErrorCode::UndefinedLibrary.category(), "Library Compatibility Error");
+        assert_eq!(
+            ErrorCode::InvalidVectorLength.category(),
+            "Unit Validation Error"
+        );
+        assert_eq!(
+            ErrorCode::UndefinedLibrary.category(),
+            "Library Compatibility Error"
+        );
     }
 
     #[test]
