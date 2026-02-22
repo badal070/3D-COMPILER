@@ -93,7 +93,14 @@ impl SceneMap {
     ///
     /// Example: Remove objects that no longer exist in runtime
     /// ```
+    /// # use renderer::scene_map::SceneMap;
+    /// # use std::collections::HashSet;
+    /// let mut scene_map = SceneMap::new();
+    /// scene_map.allocate(100);
+    /// scene_map.allocate(200);
+    /// let current_ids: HashSet<u64> = [200].into_iter().collect();
     /// let removed = scene_map.cleanup(|id| !current_ids.contains(id));
+    /// assert_eq!(removed.len(), 1);
     /// ```
     pub fn cleanup<F>(&mut self, mut should_remove: F) -> Vec<u64>
     where

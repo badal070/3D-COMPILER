@@ -5,8 +5,7 @@ members = [
     "dsl",
     "compiler/runtime",
     "compiler/renderer",
-    "compiler/ir",
-    "wasm"
+    "compiler/ir"
 ]
 resolver = "2"
 
