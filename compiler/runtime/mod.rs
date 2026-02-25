@@ -14,6 +14,8 @@ pub mod modules;
 pub mod numerical;
 pub mod snapshot_builder;
 pub mod state;
+pub mod step_trace;
+pub mod orchestrator_adapter;
 #[path = "src/symbolic/mod.rs"]
 pub mod symbolic;
 #[path = "src/visualization/mod.rs"]

@@ -2,11 +2,14 @@
 use crate::error::RuntimeResult;
 use crate::state::world_state::{ActiveConstraint, ConstraintKind};
 use crate::state::{
-    ObjectKind, ObjectState, Parameter, ParameterKind, ParameterState, Quaternion, RuntimeState,
-    TimeState, Vector3, WorldState,
+    AnnotationEntry, HighlightScheduleEntry, MathRenderableEntry, MathRenderableKind, ObjectKind,
+    ObjectState, Parameter, ParameterKind, ParameterState, Quaternion, RuntimeState, TimeState,
+    Vector3, WorldState,
 };
 /// Loads IR into executable runtime state
-use dsl_compiler::lower_to_ir::{IrComponent, IrConstraint, IrEntity, IrScene, IrValue};
+use dsl_compiler::lower_to_ir::{
+    IrComponent, IrConstraint, IrEntity, IrMathEntity, IrMathExpression, IrScene, IrValue,
+};
 
 pub struct SceneLoader;
 
@@ -40,7 +43,37 @@ impl SceneLoader {
             }
         }
 
-        Ok(RuntimeState::new(world, time))
+        let annotations = ir
+            .annotations
+            .iter()
+            .map(|annotation| AnnotationEntry {
+                label_text: annotation.label_text.clone(),
+                anchor_entity_id: annotation.anchor_entity_id.clone(),
+                position_offset: annotation.position_offset,
+                equation_node_id: annotation.equation_node_id.clone(),
+                highlight_token: annotation.highlight_token.clone(),
+            })
+            .collect::<Vec<_>>();
+
+        let highlight_schedule = ir
+            .highlight_schedule
+            .iter()
+            .map(|entry| HighlightScheduleEntry {
+                at_time: entry.at_time,
+                highlight_token: entry.highlight_token.clone(),
+                entity_id: entry.entity_id.clone(),
+                color_index: entry.color_index,
+            })
+            .collect::<Vec<_>>();
+
+        let math_renderables = Self::load_math_renderables(&ir.math_entities);
+
+        let mut state = RuntimeState::new(world, time);
+        state.annotations = annotations;
+        state.highlight_schedule = highlight_schedule;
+        state.math_renderables = math_renderables;
+
+        Ok(state)
     }
 
     fn load_entity(entity: &IrEntity) -> RuntimeResult<ObjectState> {
@@ -237,6 +270,182 @@ impl SceneLoader {
 
     fn create_time_parameter() -> Option<Parameter> {
         Some(Parameter::new("time".to_string(), 0.0).with_kind(crate::state::ParameterKind::Time))
+    }
+
+    fn load_math_renderables(math_entities: &[IrMathEntity]) -> Vec<MathRenderableEntry> {
+        math_entities
+            .iter()
+            .map(|entity| match entity {
+                IrMathEntity::Function(function) => MathRenderableEntry {
+                    id: Self::object_id_hash(&function.id),
+                    kind: MathRenderableKind::Function,
+                    expression: Self::to_runtime_expression(&function.body),
+                    domain_x: [-3.0, 3.0],
+                    domain_y: None,
+                    resolution: [64, 1],
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                    scale: 1.0,
+                },
+                IrMathEntity::Surface(surface) => MathRenderableEntry {
+                    id: Self::object_id_hash(&surface.id),
+                    kind: MathRenderableKind::Surface,
+                    expression: Self::to_runtime_expression(&surface.definition),
+                    domain_x: [-2.0, 2.0],
+                    domain_y: Some([-2.0, 2.0]),
+                    resolution: [24, 24],
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                    scale: 1.0,
+                },
+                IrMathEntity::Field(field) => MathRenderableEntry {
+                    id: Self::object_id_hash(&field.id),
+                    kind: MathRenderableKind::Field,
+                    expression: field
+                        .components
+                        .first()
+                        .map(Self::to_runtime_expression)
+                        .unwrap_or_else(|| crate::math::Expression::Number(0.0)),
+                    domain_x: [-2.0, 2.0],
+                    domain_y: Some([-2.0, 2.0]),
+                    resolution: [20, 20],
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                    scale: 1.0,
+                },
+                IrMathEntity::Curve(curve) => MathRenderableEntry {
+                    id: Self::object_id_hash(&curve.id),
+                    kind: MathRenderableKind::Function,
+                    expression: Self::to_runtime_expression(&curve.definition),
+                    domain_x: [-3.0, 3.0],
+                    domain_y: None,
+                    resolution: [64, 1],
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                    scale: 1.0,
+                },
+                IrMathEntity::Transformation(transformation) => MathRenderableEntry {
+                    id: Self::object_id_hash(&transformation.id),
+                    kind: MathRenderableKind::Function,
+                    expression: Self::to_runtime_expression(&transformation.expression),
+                    domain_x: [-3.0, 3.0],
+                    domain_y: None,
+                    resolution: [64, 1],
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                    scale: 1.0,
+                },
+                IrMathEntity::Ode(ode) => MathRenderableEntry {
+                    id: Self::object_id_hash(&ode.id),
+                    kind: MathRenderableKind::Function,
+                    expression: Self::to_runtime_expression(&ode.equation),
+                    domain_x: [-3.0, 3.0],
+                    domain_y: None,
+                    resolution: [64, 1],
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                    scale: 1.0,
+                },
+                IrMathEntity::Matrix(matrix) => MathRenderableEntry {
+                    id: Self::object_id_hash(&matrix.id),
+                    kind: MathRenderableKind::Field,
+                    expression: matrix
+                        .elements
+                        .first()
+                        .and_then(|row| row.first())
+                        .map(Self::to_runtime_expression)
+                        .unwrap_or_else(|| crate::math::Expression::Number(0.0)),
+                    domain_x: [-2.0, 2.0],
+                    domain_y: Some([-2.0, 2.0]),
+                    resolution: [16, 16],
+                    amplitude: 1.0,
+                    frequency: 1.0,
+                    phase: 0.0,
+                    scale: 1.0,
+                },
+            })
+            .collect()
+    }
+
+    fn to_runtime_expression(ir_expr: &IrMathExpression) -> crate::math::Expression {
+        use crate::math::{BinaryOperator, Expression, UnaryOperator};
+
+        let mut expr = match ir_expr.expression_type.as_str() {
+            "number" => ir_expr
+                .source
+                .parse::<f64>()
+                .map(Expression::Number)
+                .unwrap_or(Expression::Number(0.0)),
+            "variable" => Expression::Variable(ir_expr.source.clone()),
+            "unary" => {
+                let child = ir_expr
+                    .children
+                    .first()
+                    .map(Self::to_runtime_expression)
+                    .unwrap_or(Expression::Number(0.0));
+                Expression::Unary(UnaryOperator::Negate, Box::new(child))
+            }
+            "binary" => {
+                let lhs = ir_expr
+                    .children
+                    .first()
+                    .map(Self::to_runtime_expression)
+                    .unwrap_or(Expression::Number(0.0));
+                let rhs = ir_expr
+                    .children
+                    .get(1)
+                    .map(Self::to_runtime_expression)
+                    .unwrap_or(Expression::Number(0.0));
+                let op = if ir_expr.source.contains("Subtract") {
+                    BinaryOperator::Subtract
+                } else if ir_expr.source.contains("Multiply") {
+                    BinaryOperator::Multiply
+                } else if ir_expr.source.contains("Divide") {
+                    BinaryOperator::Divide
+                } else if ir_expr.source.contains("Power") {
+                    BinaryOperator::Power
+                } else {
+                    BinaryOperator::Add
+                };
+                Expression::Binary(Box::new(lhs), op, Box::new(rhs))
+            }
+            "function_call" => {
+                let name = ir_expr
+                    .source
+                    .split('(')
+                    .next()
+                    .unwrap_or("f")
+                    .trim()
+                    .to_string();
+                let args = ir_expr
+                    .children
+                    .iter()
+                    .map(Self::to_runtime_expression)
+                    .collect::<Vec<_>>();
+                Expression::FunctionCall(name, args)
+            }
+            _ => ir_expr
+                .children
+                .first()
+                .map(Self::to_runtime_expression)
+                .unwrap_or_else(|| Expression::Variable(ir_expr.source.clone())),
+        };
+
+        expr = expr.with_annotation(
+            Some(ir_expr.node_id.clone()),
+            ir_expr.highlight_token.clone(),
+        );
+        expr
+    }
+
+    fn object_id_hash(id: &str) -> u64 {
+        id.bytes().map(|b| b as u64).sum()
     }
 }
 

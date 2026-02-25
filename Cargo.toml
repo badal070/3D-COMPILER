@@ -5,7 +5,8 @@ members = [
     "dsl",
     "compiler/runtime",
     "compiler/renderer",
-    "compiler/ir"
+    "compiler/ir",
+    "llm_orchestrator",
 ]
 resolver = "2"
 

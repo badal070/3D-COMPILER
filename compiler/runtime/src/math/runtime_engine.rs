@@ -1,7 +1,9 @@
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::math::expression::{BinaryOperator, Expression, UnaryOperator};
 use crate::math::types::MathValue;
+use crate::step_trace::StepEmitter;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 type VariableMap = HashMap<String, f64>;
 
@@ -10,11 +12,22 @@ pub struct RuntimeMathEngine {
     function_cache: HashMap<String, MathValue>,
     derivative_cache: HashMap<(String, String), Expression>,
     integral_cache: HashMap<(String, String, u64, u64), f64>,
+    step_emitter: Option<Arc<Mutex<StepEmitter>>>,
 }
 
 impl RuntimeMathEngine {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_emitter(emitter: Arc<Mutex<StepEmitter>>) -> Self {
+        let mut engine = Self::new();
+        engine.step_emitter = Some(emitter);
+        engine
+    }
+
+    pub fn set_emitter(&mut self, emitter: Arc<Mutex<StepEmitter>>) {
+        self.step_emitter = Some(emitter);
     }
 
     pub fn evaluate_expression(
@@ -95,32 +108,87 @@ impl RuntimeMathEngine {
     }
 
     fn evaluate_scalar(&self, expr: &Expression, variables: &VariableMap) -> RuntimeResult<f64> {
-        match expr {
-            Expression::Number(n) => Ok(*n),
-            Expression::Variable(name) => variables.get(name).copied().ok_or_else(|| {
-                RuntimeError::Configuration(format!("Missing variable value for '{name}'"))
-            }),
+        let (node_id, highlight_token, expression) = match expr {
+            Expression::Annotated {
+                node_id,
+                highlight_token,
+                expression,
+            } => (node_id.clone(), highlight_token.clone(), expression.as_ref()),
+            _ => (None, None, expr),
+        };
+
+        match expression {
+            Expression::Number(n) => {
+                self.emit_step(
+                    node_id,
+                    highlight_token,
+                    "number",
+                    None,
+                    None,
+                    *n,
+                    variables,
+                    format!("literal {n}"),
+                );
+                Ok(*n)
+            }
+            Expression::Variable(name) => {
+                let value = variables.get(name).copied().ok_or_else(|| {
+                    RuntimeError::Configuration(format!("Missing variable value for '{name}'"))
+                })?;
+                self.emit_step(
+                    node_id,
+                    highlight_token,
+                    "substitute",
+                    None,
+                    None,
+                    value,
+                    variables,
+                    format!("substitute {name} = {value}"),
+                );
+                Ok(value)
+            }
             Expression::Unary(UnaryOperator::Negate, inner) => {
-                Ok(-self.evaluate_scalar(inner, variables)?)
+                let value = -self.evaluate_scalar(inner, variables)?;
+                self.emit_step(
+                    node_id,
+                    highlight_token,
+                    "negate",
+                    None,
+                    None,
+                    value,
+                    variables,
+                    "apply unary negation".to_string(),
+                );
+                Ok(value)
             }
             Expression::Binary(lhs, op, rhs) => {
                 let l = self.evaluate_scalar(lhs, variables)?;
                 let r = self.evaluate_scalar(rhs, variables)?;
-                match op {
-                    BinaryOperator::Add => Ok(l + r),
-                    BinaryOperator::Subtract => Ok(l - r),
-                    BinaryOperator::Multiply => Ok(l * r),
+                let (op_name, result) = match op {
+                    BinaryOperator::Add => ("add", l + r),
+                    BinaryOperator::Subtract => ("subtract", l - r),
+                    BinaryOperator::Multiply => ("multiply", l * r),
                     BinaryOperator::Divide => {
                         if r == 0.0 {
-                            Err(RuntimeError::Configuration(
+                            return Err(RuntimeError::Configuration(
                                 "Division by zero in math expression".to_string(),
-                            ))
-                        } else {
-                            Ok(l / r)
+                            ));
                         }
+                        ("divide", l / r)
                     }
-                    BinaryOperator::Power => Ok(l.powf(r)),
-                }
+                    BinaryOperator::Power => ("power", l.powf(r)),
+                };
+                self.emit_step(
+                    node_id,
+                    highlight_token,
+                    op_name,
+                    Some(l),
+                    Some(r),
+                    result,
+                    variables,
+                    format!("{op_name} operands"),
+                );
+                Ok(result)
             }
             Expression::FunctionCall(name, args) => {
                 let mut values = Vec::with_capacity(args.len());
@@ -128,7 +196,7 @@ impl RuntimeMathEngine {
                     values.push(self.evaluate_scalar(arg, variables)?);
                 }
 
-                match (name.as_str(), values.as_slice()) {
+                let result = match (name.as_str(), values.as_slice()) {
                     ("sin", [x]) => Ok(x.sin()),
                     ("cos", [x]) => Ok(x.cos()),
                     ("tan", [x]) => Ok(x.tan()),
@@ -139,7 +207,18 @@ impl RuntimeMathEngine {
                     _ => Err(RuntimeError::Configuration(format!(
                         "Unsupported function call '{name}'"
                     ))),
-                }
+                }?;
+                self.emit_step(
+                    node_id,
+                    highlight_token,
+                    name,
+                    None,
+                    None,
+                    result,
+                    variables,
+                    format!("evaluate function {name}"),
+                );
+                Ok(result)
             }
             Expression::NumericalDerivative {
                 expression,
@@ -159,13 +238,33 @@ impl RuntimeMathEngine {
 
                 let left = self.evaluate_scalar(expression, &left_vars)?;
                 let right = self.evaluate_scalar(expression, &right_vars)?;
-                Ok((right - left) / (2.0 * step))
+                let result = (right - left) / (2.0 * step);
+                self.emit_step(
+                    node_id,
+                    highlight_token,
+                    "numerical_derivative",
+                    Some(left),
+                    Some(right),
+                    result,
+                    variables,
+                    format!("central difference derivative for {variable}"),
+                );
+                Ok(result)
             }
+            Expression::Annotated { .. } => unreachable!("annotated expression is unwrapped above"),
         }
     }
 
     fn symbolic_derivative(&self, expr: &Expression, variable: &str) -> Option<Expression> {
         match expr {
+            Expression::Annotated {
+                node_id,
+                highlight_token,
+                expression,
+            } => Some(
+                self.symbolic_derivative(expression, variable)?
+                    .with_annotation(node_id.clone(), highlight_token.clone()),
+            ),
             Expression::Number(_) => Some(Expression::Number(0.0)),
             Expression::Variable(name) => {
                 Some(Expression::Number(if name == variable { 1.0 } else { 0.0 }))
@@ -254,6 +353,14 @@ impl RuntimeMathEngine {
 
     fn symbolic_antiderivative(&self, expr: &Expression, variable: &str) -> Option<Expression> {
         match expr {
+            Expression::Annotated {
+                node_id,
+                highlight_token,
+                expression,
+            } => Some(
+                self.symbolic_antiderivative(expression, variable)?
+                    .with_annotation(node_id.clone(), highlight_token.clone()),
+            ),
             Expression::Number(c) => Some(Expression::Binary(
                 Box::new(Expression::Number(*c)),
                 BinaryOperator::Multiply,
@@ -269,6 +376,79 @@ impl RuntimeMathEngine {
                 Box::new(Expression::Number(2.0)),
             )),
             _ => None,
+        }
+    }
+
+    fn emit_step(
+        &self,
+        node_id: Option<String>,
+        highlight_token: Option<String>,
+        operation_name: &str,
+        left_value: Option<f64>,
+        right_value: Option<f64>,
+        result: f64,
+        variables: &VariableMap,
+        description: String,
+    ) {
+        if let Some(emitter) = &self.step_emitter {
+            if let Ok(mut guard) = emitter.lock() {
+                // Convert operation name string to StepOperation enum
+                let operation = match operation_name {
+                    "add" => crate::step_trace::StepOperation::Add,
+                    "subtract" => crate::step_trace::StepOperation::Subtract,
+                    "multiply" => crate::step_trace::StepOperation::Multiply,
+                    "divide" => crate::step_trace::StepOperation::Divide,
+                    "power" => crate::step_trace::StepOperation::Power,
+                    "negate" => crate::step_trace::StepOperation::Negate,
+                    "substitute" => {
+                        // Extract variable name from description if possible
+                        let var_name = description
+                            .split('=')
+                            .next()
+                            .and_then(|s| s.split_whitespace().last())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        crate::step_trace::StepOperation::Substitute { variable: var_name }
+                    }
+                    "number" => crate::step_trace::StepOperation::Constant {
+                        name: "literal".to_string(),
+                    },
+                    name if name.contains("derivative") => {
+                        crate::step_trace::StepOperation::Derivative {
+                            variable: "x".to_string(),
+                            order: 1,
+                        }
+                    }
+                    name if name.contains("function") => {
+                        let func_name = name
+                            .split('_')
+                            .last()
+                            .unwrap_or("unknown")
+                            .to_string();
+                        crate::step_trace::StepOperation::FunctionCall {
+                            name: func_name,
+                        }
+                    }
+                    _ => crate::step_trace::StepOperation::Constant {
+                        name: operation_name.to_string(),
+                    },
+                };
+
+                let mut event = if let (Some(l), Some(r)) = (left_value, right_value) {
+                    crate::step_trace::MathStepEvent::binary(node_id, operation, l, r, result, vec![])
+                } else {
+                    crate::step_trace::MathStepEvent::new(node_id, operation, result, vec![])
+                };
+
+                event.highlight_token = highlight_token;
+                event.description = description;
+                event.variable_bindings = variables
+                    .iter()
+                    .map(|(k, v)| (k.clone(), *v))
+                    .collect();
+
+                guard.emit(event);
+            }
         }
     }
 

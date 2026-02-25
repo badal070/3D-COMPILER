@@ -1,0 +1,1 @@
+{"rustc":5470738401306409665,"features":"[\"default\", \"std\"]","declared_features":"[\"default\", \"std\"]","target":10248144769085601448,"profile":10809724437792986082,"path":10977556025063738082,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"debug/.fingerprint/fnv-aea6819ce7249b1c/dep-lib-fnv","checksum":false}}],"rustflags":[],"config":2069994364910194474,"compile_kind":0}

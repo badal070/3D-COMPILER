@@ -34,8 +34,16 @@ impl ReferenceValidator {
         // Validate timeline references
         self.validate_timeline_references(&ast.timelines, &motions);
 
+        // Validate annotation and educational references
+        self.validate_annotation_anchor_references(&ast.annotations, &entities);
+        self.validate_highlight_schedule_references(&ast.highlight_schedule, &entities);
+
         // Validate math object references
         self.validate_math_object_references(&ast.math_objects, &math_objects);
+
+        // Validate annotation equation node id references
+        let node_ids = Self::collect_expression_node_ids(ast);
+        self.validate_annotation_equation_node_ids(&ast.annotations, &node_ids);
 
         // Check for circular dependencies
         self.detect_circular_dependencies(&ast.constraints, &entities);
@@ -388,12 +396,12 @@ impl ReferenceValidator {
 
     fn validate_expression_refs(
         &mut self,
-        expr: &MathExpression,
+        expr: &AnnotatedExpr,
         known_objects: &HashSet<String>,
         builtins: &HashSet<&str>,
         span: SourceSpan,
     ) {
-        match expr {
+        match &expr.expr {
             MathExpression::FunctionCall(name, args) => {
                 let is_known = builtins.contains(name.as_str()) || known_objects.contains(name);
                 if !is_known {
@@ -442,6 +450,179 @@ impl ReferenceValidator {
             MathExpression::Number(_)
             | MathExpression::Variable(_)
             | MathExpression::Constant(_)
+            | MathExpression::ComplexNumber { .. } => {}
+        }
+    }
+
+    fn validate_annotation_anchor_references(
+        &mut self,
+        annotations: &[AnnotationNode],
+        entities: &HashMap<String, &AstEntity>,
+    ) {
+        for annotation in annotations {
+            if !entities.contains_key(&annotation.anchor_entity_id) {
+                self.errors.add(DslError::new(
+                    ErrorCode::UndefinedEntity,
+                    format!(
+                        "Undefined annotation anchor entity '{}'",
+                        annotation.anchor_entity_id
+                    ),
+                    annotation.span,
+                    self.file.clone(),
+                ));
+            }
+        }
+    }
+
+    fn validate_highlight_schedule_references(
+        &mut self,
+        entries: &[HighlightScheduleEntry],
+        entities: &HashMap<String, &AstEntity>,
+    ) {
+        for entry in entries {
+            if !entities.contains_key(&entry.entity_id) {
+                self.errors.add(DslError::new(
+                    ErrorCode::UndefinedEntity,
+                    format!(
+                        "Undefined entity '{}' referenced by highlight_schedule",
+                        entry.entity_id
+                    ),
+                    entry.span,
+                    self.file.clone(),
+                ));
+            }
+        }
+    }
+
+    fn validate_annotation_equation_node_ids(
+        &mut self,
+        annotations: &[AnnotationNode],
+        known_node_ids: &HashSet<String>,
+    ) {
+        for annotation in annotations {
+            if let Some(node_id) = &annotation.equation_node_id {
+                if !known_node_ids.contains(node_id) {
+                    self.errors.add(DslError::new(
+                        ErrorCode::InvalidFieldType,
+                        format!(
+                            "annotation.equation_node_id '{}' does not reference a known expression node",
+                            node_id
+                        ),
+                        annotation.span,
+                        self.file.clone(),
+                    ));
+                }
+            }
+        }
+    }
+
+    fn collect_expression_node_ids(ast: &AstFile) -> HashSet<String> {
+        let mut ids = HashSet::new();
+
+        for object in &ast.math_objects {
+            match object {
+                MathObjectNode::Function(node) => Self::collect_ids_from_expr(&node.body, &mut ids),
+                MathObjectNode::Curve(node) => {
+                    Self::collect_ids_from_expr(&node.definition, &mut ids)
+                }
+                MathObjectNode::Surface(node) => {
+                    Self::collect_ids_from_expr(&node.definition, &mut ids)
+                }
+                MathObjectNode::VectorField(node) => {
+                    for expr in &node.components {
+                        Self::collect_ids_from_expr(expr, &mut ids);
+                    }
+                }
+                MathObjectNode::ScalarField(node) => {
+                    Self::collect_ids_from_expr(&node.expression, &mut ids)
+                }
+                MathObjectNode::Transformation(node) => {
+                    Self::collect_ids_from_expr(&node.expression, &mut ids)
+                }
+                MathObjectNode::DifferentialEquation(node) => {
+                    Self::collect_ids_from_expr(&node.equation, &mut ids);
+                    for condition in &node.initial_conditions {
+                        Self::collect_ids_from_expr(&condition.expression, &mut ids);
+                    }
+                    for condition in &node.boundary_conditions {
+                        Self::collect_ids_from_expr(&condition.expression, &mut ids);
+                    }
+                }
+                MathObjectNode::MatrixDefinition(node) => {
+                    for row in &node.elements {
+                        for expr in row {
+                            Self::collect_ids_from_expr(expr, &mut ids);
+                        }
+                    }
+                }
+            }
+        }
+
+        for motion in &ast.motions {
+            for field in &motion.fields {
+                if let AstValue::MathExpression(expr, _) = &field.value {
+                    Self::collect_ids_from_expr(expr, &mut ids);
+                }
+            }
+        }
+
+        ids
+    }
+
+    fn collect_ids_from_expr(expr: &AnnotatedExpr, ids: &mut HashSet<String>) {
+        ids.insert(expr.node_id.clone());
+        match &expr.expr {
+            MathExpression::UnaryOp(_, inner)
+            | MathExpression::Derivative {
+                expression: inner, ..
+            }
+            | MathExpression::Limit {
+                expression: inner, ..
+            }
+            | MathExpression::Summation {
+                expression: inner, ..
+            }
+            | MathExpression::Product {
+                expression: inner, ..
+            } => Self::collect_ids_from_expr(inner, ids),
+            MathExpression::Integral {
+                expression, bounds, ..
+            } => {
+                Self::collect_ids_from_expr(expression, ids);
+                if let Some(interval) = bounds {
+                    Self::collect_ids_from_expr(&interval.lower, ids);
+                    Self::collect_ids_from_expr(&interval.upper, ids);
+                }
+            }
+            MathExpression::BinaryOp(lhs, _, rhs) => {
+                Self::collect_ids_from_expr(lhs, ids);
+                Self::collect_ids_from_expr(rhs, ids);
+            }
+            MathExpression::FunctionCall(_, args) => {
+                for arg in args {
+                    Self::collect_ids_from_expr(arg, ids);
+                }
+            }
+            MathExpression::Piecewise(cases) => {
+                for (_, expr) in cases {
+                    Self::collect_ids_from_expr(expr, ids);
+                }
+            }
+            MathExpression::MatrixExpr(rows) => {
+                for row in rows {
+                    for expr in row {
+                        Self::collect_ids_from_expr(expr, ids);
+                    }
+                }
+            }
+            MathExpression::VectorExpr(values) => {
+                for expr in values {
+                    Self::collect_ids_from_expr(expr, ids);
+                }
+            }
+            MathExpression::Variable(_)
+            | MathExpression::Constant(_)
+            | MathExpression::Number(_)
             | MathExpression::ComplexNumber { .. } => {}
         }
     }
@@ -512,6 +693,9 @@ mod tests {
             compound_motions: vec![],
             trajectories: vec![],
             timelines: vec![],
+            concept_ref: None,
+            annotations: vec![],
+            highlight_schedule: vec![],
             span: SourceSpan::single_point(1, 1, 0),
         };
 

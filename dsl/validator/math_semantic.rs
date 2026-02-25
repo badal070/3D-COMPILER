@@ -87,8 +87,8 @@ impl MathSemanticValidator {
         }
     }
 
-    fn infer_type(&mut self, expr: &MathExpression, span: SourceSpan) -> InferredMathType {
-        match expr {
+    fn infer_type(&mut self, expr: &AnnotatedExpr, span: SourceSpan) -> InferredMathType {
+        match &expr.expr {
             MathExpression::Variable(_) => InferredMathType::Unknown,
             MathExpression::Constant(c) => match c {
                 MathConstant::ImaginaryUnit => InferredMathType::Complex,
@@ -186,7 +186,7 @@ impl MathSemanticValidator {
         }
     }
 
-    fn check_function_domain(&mut self, name: &str, args: &[MathExpression], span: SourceSpan) {
+    fn check_function_domain(&mut self, name: &str, args: &[AnnotatedExpr], span: SourceSpan) {
         if args.is_empty() {
             return;
         }
@@ -373,8 +373,8 @@ impl MathSemanticValidator {
         }
     }
 
-    fn eval_constant(&self, expr: &MathExpression) -> Option<f64> {
-        match expr {
+    fn eval_constant(&self, expr: &AnnotatedExpr) -> Option<f64> {
+        match &expr.expr {
             MathExpression::Number(n) => Some(*n),
             MathExpression::Constant(c) => match c {
                 MathConstant::Pi => Some(std::f64::consts::PI),
@@ -416,11 +416,23 @@ mod tests {
     #[test]
     fn test_constant_eval() {
         let validator = MathSemanticValidator::new(PathBuf::from("test.dsl"));
-        let expr = MathExpression::BinaryOp(
-            Box::new(MathExpression::Number(2.0)),
-            MathBinaryOperator::Multiply,
-            Box::new(MathExpression::Number(4.0)),
-        );
+        let expr = AnnotatedExpr {
+            node_id: "n0".to_string(),
+            highlight_token: None,
+            expr: MathExpression::BinaryOp(
+                Box::new(AnnotatedExpr {
+                    node_id: "n1".to_string(),
+                    highlight_token: None,
+                    expr: MathExpression::Number(2.0),
+                }),
+                MathBinaryOperator::Multiply,
+                Box::new(AnnotatedExpr {
+                    node_id: "n2".to_string(),
+                    highlight_token: None,
+                    expr: MathExpression::Number(4.0),
+                }),
+            ),
+        };
         assert_eq!(validator.eval_constant(&expr), Some(8.0));
     }
 
@@ -428,8 +440,16 @@ mod tests {
     fn test_interval_validation() {
         let mut validator = MathSemanticValidator::new(PathBuf::from("test.dsl"));
         let bad = IntervalConstraint {
-            lower: Box::new(MathExpression::Number(5.0)),
-            upper: Box::new(MathExpression::Number(1.0)),
+            lower: Box::new(AnnotatedExpr {
+                node_id: "l".to_string(),
+                highlight_token: None,
+                expr: MathExpression::Number(5.0),
+            }),
+            upper: Box::new(AnnotatedExpr {
+                node_id: "u".to_string(),
+                highlight_token: None,
+                expr: MathExpression::Number(1.0),
+            }),
             lower_inclusive: true,
             upper_inclusive: true,
         };

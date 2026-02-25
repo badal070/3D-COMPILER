@@ -12,7 +12,10 @@ use crate::math::{BinaryOperator, Expression, MathValue, RuntimeMathEngine};
 use crate::motion::MotionSystem;
 use crate::snapshot::{Snapshot, SnapshotHistory};
 use crate::state::{RuntimeState, TimeState, WorldState};
+use crate::step_trace::StepEmitter;
 use crate::{ExecutionState, RuntimeCommand, RuntimeConfig};
+use std::sync::{Arc, Mutex};
+use llm_orchestrator::OrchestratorResponse;
 
 /// Main runtime engine
 pub struct RuntimeEngine {
@@ -30,6 +33,8 @@ pub struct RuntimeEngine {
     motion_system: MotionSystem,
     /// Runtime math engine for expression/derivative/integral evaluation
     math_engine: RuntimeMathEngine,
+    /// Optional step event emitter for equation traces
+    step_emitter: Option<Arc<Mutex<StepEmitter>>>,
     /// Fingerprint of parameter values used for cache invalidation
     last_parameter_fingerprint: Vec<(String, u64)>,
     /// Watchdog
@@ -64,6 +69,7 @@ impl RuntimeEngine {
             constraint_system: ConstraintSystem::new(constraint_config),
             motion_system: MotionSystem::default(),
             math_engine: RuntimeMathEngine::new(),
+            step_emitter: None,
             last_parameter_fingerprint: Vec::new(),
             watchdog,
             snapshots,
@@ -72,7 +78,7 @@ impl RuntimeEngine {
     }
 
     /// Initialize with state and execution plan
-    pub fn initialize(&mut self, state: RuntimeState, plan: ExecutionPlan) -> RuntimeResult<()> {
+    pub fn initialize(&mut self, mut state: RuntimeState, plan: ExecutionPlan) -> RuntimeResult<()> {
         // Validate state
         state
             .validate()
@@ -80,6 +86,9 @@ impl RuntimeEngine {
 
         // Validate plan
         plan.validate()?;
+
+        state.highlight_schedule = plan.highlight_schedule.clone();
+        state.annotations = plan.annotations.clone();
 
         self.state = state;
         self.plan = Some(plan);
@@ -94,6 +103,31 @@ impl RuntimeEngine {
             snapshots.take_snapshot(self.state.clone(), Some("Initial".to_string()));
         }
 
+        Ok(())
+    }
+
+    pub fn set_step_emitter(&mut self, emitter: Arc<Mutex<StepEmitter>>) {
+        self.step_emitter = Some(emitter.clone());
+        self.math_engine.set_emitter(emitter);
+    }
+
+    /// Register tokens from an `OrchestratorResponse` into the runtime's
+    /// `HighlightTokenRegistry` (via the active `StepEmitter` if present).
+    pub fn apply_orchestrator_response(&mut self, resp: OrchestratorResponse) -> RuntimeResult<()> {
+        if let Some(emitter_arc) = &self.step_emitter {
+            if let Ok(guard) = emitter_arc.lock() {
+                // Clone the registry Arc so we can release the emitter lock early
+                let registry = guard.token_registry();
+                drop(guard);
+
+                let regs = llm_orchestrator::response_to_token_registrations(&resp);
+                if let Ok(mut reg) = registry.write() {
+                    for (token, color, display) in regs {
+                        reg.register(token, color, display);
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -431,6 +465,12 @@ impl RuntimeEngine {
             "engine.integral_x2_0_1".to_string(),
             MathValue::Real(integral_value),
         );
+
+        if let Some(emitter) = &self.step_emitter {
+            if let Ok(guard) = emitter.lock() {
+                self.state.set_highlight_token(guard.last_highlight_token());
+            }
+        }
 
         Ok(())
     }

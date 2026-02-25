@@ -30,6 +30,8 @@ pub struct ExecutionContext {
 pub struct ExecutionPlan {
     pub stages: Vec<ExecutionStage>,
     pub description: String,
+    pub highlight_schedule: Vec<crate::state::HighlightScheduleEntry>,
+    pub annotations: Vec<crate::state::AnnotationEntry>,
 }
 
 impl ExecutionPlan {
@@ -37,6 +39,8 @@ impl ExecutionPlan {
         Self {
             stages: Vec::new(),
             description: description.into(),
+            highlight_schedule: Vec::new(),
+            annotations: Vec::new(),
         }
     }
 

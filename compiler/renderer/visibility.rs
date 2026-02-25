@@ -64,6 +64,24 @@ impl VisibilityManager {
     pub fn apply_focus(&self, objects: &mut [ObjectState], focus_ids: &[u64]) {
         for obj in objects.iter_mut() {
             obj.highlighted = focus_ids.contains(&obj.id);
+            obj.highlight_token = None;
+        }
+    }
+
+    pub fn apply_focus_with_token(
+        &self,
+        objects: &mut [ObjectState],
+        token_object_ids: &[u64],
+        active_token: &str,
+    ) {
+        for obj in objects.iter_mut() {
+            if token_object_ids.contains(&obj.id) {
+                obj.highlighted = true;
+                obj.highlight_token = Some(active_token.to_string());
+            } else {
+                obj.highlighted = false;
+                obj.highlight_token = None;
+            }
         }
     }
 
@@ -201,6 +219,7 @@ mod tests {
             material: MaterialProperties::default(),
             visible,
             highlighted: false,
+            highlight_token: None,
         }
     }
 

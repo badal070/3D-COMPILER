@@ -10,6 +10,7 @@ use crate::state::RuntimeState;
 pub struct ExecutionStep {
     pub kind: StepKind,
     pub description: String,
+    pub equation_node_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +27,18 @@ pub enum StepKind {
     Synchronize,
     /// Custom step
     Custom,
+    /// Evaluating a specific sub-expression node
+    EvaluateSubExpression,
+    /// Substituting a variable with its current value
+    SubstituteVariable,
+    /// Applying a named mathematical rule
+    ApplyRule,
+    /// A simplification step
+    Simplify,
+    /// Iterative convergence check
+    ConvergenceCheck,
+    /// Teaching-context step
+    TeachingStep,
 }
 
 /// Result of executing a step
@@ -48,6 +61,12 @@ pub struct StepMetrics {
     pub objects_updated: usize,
     /// Number of constraints evaluated
     pub constraints_evaluated: usize,
+    /// Node id of the active expression
+    pub active_expression_node_id: Option<String>,
+    /// Active highlight token for this step
+    pub active_highlight_token: Option<String>,
+    /// Human-readable operation summary
+    pub step_description: Option<String>,
 }
 
 impl Default for StepMetrics {
@@ -58,6 +77,9 @@ impl Default for StepMetrics {
             residual: 0.0,
             objects_updated: 0,
             constraints_evaluated: 0,
+            active_expression_node_id: None,
+            active_highlight_token: None,
+            step_description: None,
         }
     }
 }
@@ -67,7 +89,13 @@ impl ExecutionStep {
         Self {
             kind,
             description: description.into(),
+            equation_node_id: None,
         }
+    }
+
+    pub fn with_equation_node_id(mut self, equation_node_id: Option<String>) -> Self {
+        self.equation_node_id = equation_node_id;
+        self
     }
 
     pub fn initialize() -> Self {

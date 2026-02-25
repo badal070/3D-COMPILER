@@ -19,6 +19,9 @@ pub struct IrScene {
     pub math_entities: Vec<IrMathEntity>,
     pub compound_motions: Vec<IrCompoundMotion>,
     pub timelines: Vec<IrTimeline>,
+    pub annotations: Vec<IrAnnotation>,
+    pub highlight_schedule: Vec<IrHighlightEntry>,
+    pub concept_ref: Option<IrConceptRef>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,6 +63,33 @@ pub struct IrMathExpression {
     pub expression_type: String,
     pub source: String,
     pub complexity: usize,
+    pub node_id: String,
+    pub highlight_token: Option<String>,
+    pub children: Vec<IrMathExpression>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrAnnotation {
+    pub label_text: String,
+    pub anchor_entity_id: String,
+    pub position_offset: [f64; 3],
+    pub equation_node_id: Option<String>,
+    pub highlight_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrHighlightEntry {
+    pub at_time: f64,
+    pub highlight_token: String,
+    pub entity_id: String,
+    pub color_index: u8,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrConceptRef {
+    pub concept_id: String,
+    pub section_id: String,
+    pub step_index: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -193,6 +223,9 @@ impl IrLowering {
         let math_entities = Self::lower_math_objects(ast.math_objects);
         let compound_motions = Self::lower_compound_motions(ast.compound_motions)?;
         let timelines = Self::lower_timelines(ast.timelines)?;
+        let annotations = Self::lower_annotations(ast.annotations);
+        let highlight_schedule = Self::lower_highlight_schedule(ast.highlight_schedule);
+        let concept_ref = Self::lower_concept_ref(ast.concept_ref);
 
         Ok(IrScene {
             metadata,
@@ -202,6 +235,9 @@ impl IrLowering {
             math_entities,
             compound_motions,
             timelines,
+            annotations,
+            highlight_schedule,
+            concept_ref,
         })
     }
 
@@ -396,6 +432,41 @@ impl IrLowering {
             .collect()
     }
 
+    fn lower_annotations(annotations: Vec<AnnotationNode>) -> Vec<IrAnnotation> {
+        annotations
+            .into_iter()
+            .map(|annotation| IrAnnotation {
+                label_text: annotation.label_text,
+                anchor_entity_id: annotation.anchor_entity_id,
+                position_offset: annotation.position_offset,
+                equation_node_id: annotation.equation_node_id,
+                highlight_token: annotation.highlight_token,
+            })
+            .collect()
+    }
+
+    fn lower_highlight_schedule(
+        schedule: Vec<HighlightScheduleEntry>,
+    ) -> Vec<IrHighlightEntry> {
+        schedule
+            .into_iter()
+            .map(|entry| IrHighlightEntry {
+                at_time: entry.at_time,
+                highlight_token: entry.highlight_token,
+                entity_id: entry.entity_id,
+                color_index: entry.color_index,
+            })
+            .collect()
+    }
+
+    fn lower_concept_ref(concept_ref: Option<ConceptAnnotation>) -> Option<IrConceptRef> {
+        concept_ref.map(|concept| IrConceptRef {
+            concept_id: concept.concept_id,
+            section_id: concept.section_id,
+            step_index: concept.step_index,
+        })
+    }
+
     fn lower_math_objects(math_objects: Vec<MathObjectNode>) -> Vec<IrMathEntity> {
         math_objects
             .into_iter()
@@ -545,6 +616,7 @@ impl IrLowering {
         match value {
             AstValue::Number(n, _) => Ok(IrValue::Number(n)),
             AstValue::String(s, _) => Ok(IrValue::String(s)),
+            AstValue::Boolean(b, _) => Ok(IrValue::Boolean(b)),
             AstValue::Identifier(id, _) => {
                 // Handle boolean identifiers
                 match id.as_str() {
@@ -596,11 +668,67 @@ impl IrLowering {
         }
     }
 
-    fn lower_math_expression(expr: &MathExpression) -> IrMathExpression {
+    fn lower_math_expression(expr: &AnnotatedExpr) -> IrMathExpression {
         IrMathExpression {
-            expression_type: Self::math_expr_kind(expr).to_string(),
-            source: Self::math_expr_to_string(expr),
-            complexity: Self::math_expr_complexity(expr),
+            expression_type: Self::math_expr_kind(&expr.expr).to_string(),
+            source: Self::annotated_expr_to_string(expr),
+            complexity: Self::annotated_expr_complexity(expr),
+            node_id: expr.node_id.clone(),
+            highlight_token: expr.highlight_token.clone(),
+            children: Self::lower_math_children(&expr.expr),
+        }
+    }
+
+    fn lower_math_children(expr: &MathExpression) -> Vec<IrMathExpression> {
+        match expr {
+            MathExpression::BinaryOp(lhs, _, rhs) => vec![
+                Self::lower_math_expression(lhs),
+                Self::lower_math_expression(rhs),
+            ],
+            MathExpression::UnaryOp(_, value)
+            | MathExpression::Derivative {
+                expression: value, ..
+            }
+            | MathExpression::Limit {
+                expression: value, ..
+            }
+            | MathExpression::Summation {
+                expression: value, ..
+            }
+            | MathExpression::Product {
+                expression: value, ..
+            } => vec![Self::lower_math_expression(value)],
+            MathExpression::Integral {
+                expression,
+                bounds,
+                ..
+            } => {
+                let mut children = vec![Self::lower_math_expression(expression)];
+                if let Some(interval) = bounds {
+                    children.push(Self::lower_math_expression(&interval.lower));
+                    children.push(Self::lower_math_expression(&interval.upper));
+                }
+                children
+            }
+            MathExpression::FunctionCall(_, args) => {
+                args.iter().map(Self::lower_math_expression).collect()
+            }
+            MathExpression::Piecewise(cases) => cases
+                .iter()
+                .map(|(_, expr)| Self::lower_math_expression(expr))
+                .collect(),
+            MathExpression::MatrixExpr(rows) => rows
+                .iter()
+                .flat_map(|row| row.iter())
+                .map(Self::lower_math_expression)
+                .collect(),
+            MathExpression::VectorExpr(values) => {
+                values.iter().map(Self::lower_math_expression).collect()
+            }
+            MathExpression::Variable(_)
+            | MathExpression::Constant(_)
+            | MathExpression::Number(_)
+            | MathExpression::ComplexNumber { .. } => Vec::new(),
         }
     }
 
@@ -624,6 +752,10 @@ impl IrLowering {
         }
     }
 
+    fn annotated_expr_to_string(expr: &AnnotatedExpr) -> String {
+        Self::math_expr_to_string(&expr.expr)
+    }
+
     fn math_expr_to_string(expr: &MathExpression) -> String {
         match expr {
             MathExpression::Variable(v) => v.clone(),
@@ -637,18 +769,18 @@ impl IrLowering {
             MathExpression::ComplexNumber { real, imag } => format!("{}+{}i", real, imag),
             MathExpression::BinaryOp(lhs, op, rhs) => format!(
                 "({} {:?} {})",
-                Self::math_expr_to_string(lhs),
+                Self::annotated_expr_to_string(lhs),
                 op,
-                Self::math_expr_to_string(rhs)
+                Self::annotated_expr_to_string(rhs)
             ),
             MathExpression::UnaryOp(op, value) => {
-                format!("({:?} {})", op, Self::math_expr_to_string(value))
+                format!("({:?} {})", op, Self::annotated_expr_to_string(value))
             }
             MathExpression::FunctionCall(name, args) => format!(
                 "{}({})",
                 name,
                 args.iter()
-                    .map(Self::math_expr_to_string)
+                    .map(Self::annotated_expr_to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -658,7 +790,7 @@ impl IrLowering {
                 order,
             } => format!(
                 "derivative({}, {}, {})",
-                Self::math_expr_to_string(expression),
+                Self::annotated_expr_to_string(expression),
                 variable,
                 order
             ),
@@ -670,15 +802,15 @@ impl IrLowering {
                 if let Some(b) = bounds {
                     format!(
                         "integral({}, {}, {}, {})",
-                        Self::math_expr_to_string(expression),
+                        Self::annotated_expr_to_string(expression),
                         variable,
-                        Self::math_expr_to_string(&b.lower),
-                        Self::math_expr_to_string(&b.upper)
+                        Self::annotated_expr_to_string(&b.lower),
+                        Self::annotated_expr_to_string(&b.upper)
                     )
                 } else {
                     format!(
                         "integral({}, {})",
-                        Self::math_expr_to_string(expression),
+                        Self::annotated_expr_to_string(expression),
                         variable
                     )
                 }
@@ -689,7 +821,7 @@ impl IrLowering {
                 approach,
             } => format!(
                 "limit({}, {}, {})",
-                Self::math_expr_to_string(expression),
+                Self::annotated_expr_to_string(expression),
                 variable,
                 approach
             ),
@@ -699,10 +831,10 @@ impl IrLowering {
                 bounds,
             } => format!(
                 "sum({}, {}, {}, {})",
-                Self::math_expr_to_string(expression),
+                Self::annotated_expr_to_string(expression),
                 variable,
-                Self::math_expr_to_string(&bounds.lower),
-                Self::math_expr_to_string(&bounds.upper)
+                Self::annotated_expr_to_string(&bounds.lower),
+                Self::annotated_expr_to_string(&bounds.upper)
             ),
             MathExpression::Product {
                 expression,
@@ -710,10 +842,10 @@ impl IrLowering {
                 bounds,
             } => format!(
                 "product({}, {}, {}, {})",
-                Self::math_expr_to_string(expression),
+                Self::annotated_expr_to_string(expression),
                 variable,
-                Self::math_expr_to_string(&bounds.lower),
-                Self::math_expr_to_string(&bounds.upper)
+                Self::annotated_expr_to_string(&bounds.lower),
+                Self::annotated_expr_to_string(&bounds.upper)
             ),
             MathExpression::Piecewise(cases) => format!("piecewise[{} cases]", cases.len()),
             MathExpression::MatrixExpr(rows) => format!(
@@ -725,41 +857,45 @@ impl IrLowering {
         }
     }
 
+    fn annotated_expr_complexity(expr: &AnnotatedExpr) -> usize {
+        Self::math_expr_complexity(&expr.expr)
+    }
+
     fn math_expr_complexity(expr: &MathExpression) -> usize {
         match expr {
             MathExpression::Variable(_)
             | MathExpression::Constant(_)
             | MathExpression::Number(_)
             | MathExpression::ComplexNumber { .. } => 1,
-            MathExpression::UnaryOp(_, v) => 1 + Self::math_expr_complexity(v),
+            MathExpression::UnaryOp(_, v) => 1 + Self::annotated_expr_complexity(v),
             MathExpression::BinaryOp(l, _, r) => {
-                1 + Self::math_expr_complexity(l) + Self::math_expr_complexity(r)
+                1 + Self::annotated_expr_complexity(l) + Self::annotated_expr_complexity(r)
             }
             MathExpression::FunctionCall(_, args) => {
-                1 + args.iter().map(Self::math_expr_complexity).sum::<usize>()
+                1 + args.iter().map(Self::annotated_expr_complexity).sum::<usize>()
             }
             MathExpression::Derivative { expression, .. }
             | MathExpression::Integral { expression, .. }
             | MathExpression::Limit { expression, .. }
             | MathExpression::Summation { expression, .. }
             | MathExpression::Product { expression, .. } => {
-                1 + Self::math_expr_complexity(expression)
+                1 + Self::annotated_expr_complexity(expression)
             }
             MathExpression::Piecewise(cases) => {
                 1 + cases
                     .iter()
-                    .map(|(_, expr)| Self::math_expr_complexity(expr))
+                    .map(|(_, expr)| Self::annotated_expr_complexity(expr))
                     .sum::<usize>()
             }
             MathExpression::MatrixExpr(rows) => {
                 1 + rows
                     .iter()
                     .flat_map(|row| row.iter())
-                    .map(Self::math_expr_complexity)
+                    .map(Self::annotated_expr_complexity)
                     .sum::<usize>()
             }
             MathExpression::VectorExpr(values) => {
-                1 + values.iter().map(Self::math_expr_complexity).sum::<usize>()
+                1 + values.iter().map(Self::annotated_expr_complexity).sum::<usize>()
             }
         }
     }
@@ -832,6 +968,28 @@ impl IrScene {
                     }).collect::<Vec<_>>(),
                 })
             }).collect::<Vec<_>>(),
+            "annotations": self.annotations.iter().map(|a| {
+                serde_json::json!({
+                    "label_text": a.label_text,
+                    "anchor_entity_id": a.anchor_entity_id,
+                    "position_offset": a.position_offset,
+                    "equation_node_id": a.equation_node_id,
+                    "highlight_token": a.highlight_token,
+                })
+            }).collect::<Vec<_>>(),
+            "highlight_schedule": self.highlight_schedule.iter().map(|e| {
+                serde_json::json!({
+                    "at_time": e.at_time,
+                    "highlight_token": e.highlight_token,
+                    "entity_id": e.entity_id,
+                    "color_index": e.color_index,
+                })
+            }).collect::<Vec<_>>(),
+            "concept_ref": self.concept_ref.as_ref().map(|c| serde_json::json!({
+                "concept_id": c.concept_id,
+                "section_id": c.section_id,
+                "step_index": c.step_index,
+            })),
         })
     }
 
@@ -850,6 +1008,9 @@ impl IrScene {
                 "type": expr.expression_type,
                 "source": expr.source,
                 "complexity": expr.complexity,
+                "node_id": expr.node_id,
+                "highlight_token": expr.highlight_token,
+                "children": expr.children.iter().map(Self::math_expression_to_json).collect::<Vec<_>>(),
             }),
         }
     }
@@ -930,6 +1091,9 @@ impl IrScene {
             "type": expr.expression_type,
             "source": expr.source,
             "complexity": expr.complexity,
+            "node_id": expr.node_id,
+            "highlight_token": expr.highlight_token,
+            "children": expr.children.iter().map(Self::math_expression_to_json).collect::<Vec<_>>(),
         })
     }
 }
@@ -938,6 +1102,14 @@ impl IrScene {
 mod tests {
     use super::*;
     use crate::errors::SourceSpan;
+
+    fn mk_expr(expr: MathExpression) -> AnnotatedExpr {
+        AnnotatedExpr {
+            node_id: "test_node".to_string(),
+            highlight_token: None,
+            expr,
+        }
+    }
 
     #[test]
     fn test_value_lowering() {
@@ -951,7 +1123,7 @@ mod tests {
         let ir_vec = IrLowering::lower_value(vec).unwrap();
         assert!(matches!(ir_vec, IrValue::Vector3([1.0, 2.0, 3.0])));
 
-        let bool_true = AstValue::Identifier("true".to_string(), span);
+        let bool_true = AstValue::Boolean(true, span);
         let ir_bool = IrLowering::lower_value(bool_true).unwrap();
         assert!(matches!(ir_bool, IrValue::Boolean(true)));
     }
@@ -995,7 +1167,7 @@ mod tests {
                 MathObjectNode::Function(FunctionNode {
                     name: "f".to_string(),
                     parameters: vec!["x".to_string()],
-                    body: MathExpression::Variable("x".to_string()),
+                    body: mk_expr(MathExpression::Variable("x".to_string())),
                     domain: domain.clone(),
                     range: None,
                     properties: FunctionProperties {
@@ -1009,7 +1181,7 @@ mod tests {
                 }),
                 MathObjectNode::ScalarField(ScalarFieldNode {
                     name: "phi".to_string(),
-                    expression: MathExpression::Number(3.0),
+                    expression: mk_expr(MathExpression::Number(3.0)),
                     domain: domain.clone(),
                     span: s,
                 }),
@@ -1017,7 +1189,7 @@ mod tests {
                     name: "ode1".to_string(),
                     equation_type: DifferentialEquationType::Ode,
                     order: 1,
-                    equation: MathExpression::Variable("x".to_string()),
+                    equation: mk_expr(MathExpression::Variable("x".to_string())),
                     initial_conditions: vec![],
                     boundary_conditions: vec![],
                     span: s,
@@ -1026,6 +1198,9 @@ mod tests {
             compound_motions: vec![],
             trajectories: vec![],
             timelines: vec![],
+            concept_ref: None,
+            annotations: vec![],
+            highlight_schedule: vec![],
             span: s,
         };
 

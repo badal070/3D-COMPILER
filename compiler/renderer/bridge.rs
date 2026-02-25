@@ -81,7 +81,7 @@ impl RendererBridge {
             .filter(&snapshot.objects, &snapshot.focus_ids);
 
         // Interpolate if enabled
-        let render_objects = if self.config.interpolate {
+        let mut render_objects = if self.config.interpolate {
             if let Some(prev) = &self.last_snapshot {
                 let alpha = self.frame_sync.interpolation_alpha();
                 self.interpolator
@@ -93,6 +93,13 @@ impl RendererBridge {
             visible_objects
         };
 
+        if let Some(token) = &snapshot.active_highlight_token {
+            let entries = self.resolve_highlight_token(token, &snapshot.highlight_schedule);
+            let token_object_ids = entries.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+            self.visibility
+                .apply_focus_with_token(&mut render_objects, &token_object_ids, token);
+        }
+
         // Convert objects to render instructions
         let mut rendered = 0;
 
@@ -100,14 +107,14 @@ impl RendererBridge {
             // Check if object exists in scene
             if let Some(render_id) = self.scene_map.get(obj.id) {
                 // Update existing object
-                if let Err(e) = self.update_object(render_id, obj) {
+                if let Err(e) = self.update_object(render_id, obj, &snapshot.highlight_schedule) {
                     log::error!("Failed to update object {}: {:?}", obj.id, e);
                     // Continue rendering other objects
                 }
                 rendered += 1;
             } else {
                 // Create new object
-                match self.create_object(obj) {
+                match self.create_object(obj, &snapshot.highlight_schedule) {
                     Ok(render_id) => {
                         self.scene_map.insert(obj.id, render_id);
                         rendered += 1;
@@ -124,12 +131,12 @@ impl RendererBridge {
         let generated_math_objects = self.generate_math_objects(snapshot);
         for obj in &generated_math_objects {
             if let Some(render_id) = self.scene_map.get(obj.id) {
-                if let Err(e) = self.update_object(render_id, obj) {
+                if let Err(e) = self.update_object(render_id, obj, &snapshot.highlight_schedule) {
                     log::error!("Failed to update math object {}: {:?}", obj.id, e);
                 }
                 rendered += 1;
             } else {
-                match self.create_object(obj) {
+                match self.create_object(obj, &snapshot.highlight_schedule) {
                     Ok(render_id) => {
                         self.scene_map.insert(obj.id, render_id);
                         rendered += 1;
@@ -137,6 +144,23 @@ impl RendererBridge {
                     Err(e) => {
                         log::error!("Failed to create math object {}: {:?}", obj.id, e);
                     }
+                }
+            }
+        }
+
+        for annotation in &snapshot.annotations {
+            if let Some(render_id) = self.scene_map.get(annotation.anchor_object_id) {
+                if let Err(e) = self.backend.set_annotation(
+                    render_id,
+                    &annotation.label_text,
+                    annotation.position_offset,
+                    annotation.is_active,
+                ) {
+                    log::error!(
+                        "Failed to apply annotation to object {}: {:?}",
+                        annotation.anchor_object_id,
+                        e
+                    );
                 }
             }
         }
@@ -206,7 +230,11 @@ impl RendererBridge {
 
     // Private helpers
 
-    fn create_object(&mut self, obj: &crate::renderer::ObjectState) -> RenderResult<u64> {
+    fn create_object(
+        &mut self,
+        obj: &crate::renderer::ObjectState,
+        schedule: &[crate::renderer::HighlightScheduleEntry],
+    ) -> RenderResult<u64> {
         // Convert semantic geometry to render geometry
         let geometry = self.adapter.convert_geometry(&obj.geometry)?;
 
@@ -225,9 +253,9 @@ impl RendererBridge {
         }
 
         // Apply highlight if needed
-        if obj.highlighted {
-            self.backend.set_highlighted(render_id, true)?;
-        }
+        let color_index = self.resolve_object_color_index(obj, schedule).unwrap_or(0);
+        self.backend
+            .set_highlighted_with_color(render_id, obj.highlighted, color_index)?;
 
         Ok(render_id)
     }
@@ -236,6 +264,7 @@ impl RendererBridge {
         &mut self,
         render_id: u64,
         obj: &crate::renderer::ObjectState,
+        schedule: &[crate::renderer::HighlightScheduleEntry],
     ) -> RenderResult<()> {
         // Update transform
         let transform = self.adapter.convert_transform(&obj.transform);
@@ -249,7 +278,9 @@ impl RendererBridge {
         self.backend.set_visible(render_id, obj.visible)?;
 
         // Update highlight
-        self.backend.set_highlighted(render_id, obj.highlighted)?;
+        let color_index = self.resolve_object_color_index(obj, schedule).unwrap_or(0);
+        self.backend
+            .set_highlighted_with_color(render_id, obj.highlighted, color_index)?;
 
         Ok(())
     }
@@ -336,7 +367,32 @@ impl RendererBridge {
             material: MaterialProperties::default(),
             visible: true,
             highlighted: false,
+            highlight_token: None,
         })
+    }
+
+    fn resolve_highlight_token(
+        &self,
+        token: &str,
+        schedule: &[crate::renderer::HighlightScheduleEntry],
+    ) -> Vec<(u64, u8)> {
+        schedule
+            .iter()
+            .filter(|entry| entry.highlight_token == token)
+            .map(|entry| (entry.entity_id_hash, entry.color_index))
+            .collect()
+    }
+
+    fn resolve_object_color_index(
+        &self,
+        obj: &crate::renderer::ObjectState,
+        schedule: &[crate::renderer::HighlightScheduleEntry],
+    ) -> Option<u8> {
+        let token = obj.highlight_token.as_ref()?;
+        schedule
+            .iter()
+            .find(|entry| entry.highlight_token == *token && entry.entity_id_hash == obj.id)
+            .map(|entry| entry.color_index)
     }
 }
 
@@ -358,6 +414,9 @@ mod tests {
             objects: vec![],
             math_renderables: vec![],
             focus_ids: vec![],
+            active_highlight_token: None,
+            highlight_schedule: vec![],
+            annotations: vec![],
         };
 
         // Update should not modify snapshot
@@ -381,6 +440,9 @@ mod tests {
             objects: vec![],
             math_renderables: vec![],
             focus_ids: vec![],
+            active_highlight_token: None,
+            highlight_schedule: vec![],
+            annotations: vec![],
         };
 
         let result = bridge.update(&snapshot);
@@ -425,6 +487,9 @@ mod tests {
                 },
             ],
             focus_ids: vec![],
+            active_highlight_token: None,
+            highlight_schedule: vec![],
+            annotations: vec![],
         };
 
         let result = bridge.update(&snapshot);

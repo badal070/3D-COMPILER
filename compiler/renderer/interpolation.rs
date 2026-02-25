@@ -76,6 +76,7 @@ impl Interpolator {
             material: self.interpolate_material(&previous.material, &current.material, alpha),
             visible: current.visible, // Boolean states don't interpolate
             highlighted: current.highlighted,
+            highlight_token: current.highlight_token.clone(),
         }
     }
 
@@ -223,6 +224,7 @@ mod tests {
             material: MaterialProperties::default(),
             visible: true,
             highlighted: false,
+            highlight_token: None,
         }
     }
 

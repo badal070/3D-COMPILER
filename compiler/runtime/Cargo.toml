@@ -16,3 +16,4 @@ toml = "0.8"
 # Internal dependencies
 ir = { path = "../ir" }
 dsl-compiler = { path = "../../dsl" }
+llm_orchestrator = { path = "../../llm_orchestrator" }

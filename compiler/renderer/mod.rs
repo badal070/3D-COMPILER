@@ -128,6 +128,27 @@ pub struct RuntimeSnapshot {
     pub objects: Vec<ObjectState>,
     pub math_renderables: Vec<MathRenderable>,
     pub focus_ids: Vec<u64>,
+    pub active_highlight_token: Option<String>,
+    pub highlight_schedule: Vec<HighlightScheduleEntry>,
+    pub annotations: Vec<AnnotationOverlay>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HighlightScheduleEntry {
+    pub at_time: f64,
+    pub highlight_token: String,
+    pub entity_id_hash: u64,
+    pub color_index: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnnotationOverlay {
+    pub label_text: String,
+    pub anchor_object_id: u64,
+    pub position_offset: [f64; 3],
+    pub equation_node_id: Option<String>,
+    pub highlight_token: Option<String>,
+    pub is_active: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +188,7 @@ pub struct ObjectState {
     pub material: MaterialProperties,
     pub visible: bool,
     pub highlighted: bool,
+    pub highlight_token: Option<String>,
 }
 
 /// Geometry type from the semantic layer

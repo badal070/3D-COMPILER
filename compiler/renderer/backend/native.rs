@@ -252,6 +252,37 @@ impl RenderBackend for NativeBackend {
         Ok(())
     }
 
+    fn set_highlighted_with_color(
+        &mut self,
+        id: u64,
+        highlighted: bool,
+        color_index: u8,
+    ) -> RenderResult<()> {
+        self.log_debug(&format!(
+            "Setting colored highlight for object {} to {} with color {}",
+            id, highlighted, color_index
+        ));
+        self.set_highlighted(id, highlighted)
+    }
+
+    fn set_annotation(
+        &mut self,
+        anchor_id: u64,
+        label_text: &str,
+        _offset: [f64; 3],
+        is_active: bool,
+    ) -> RenderResult<()> {
+        self.log_debug(&format!(
+            "Setting annotation on {}: '{}' (active={})",
+            anchor_id, label_text, is_active
+        ));
+        if self.objects.contains_key(&anchor_id) {
+            Ok(())
+        } else {
+            Err(RenderError::ObjectNotFound(anchor_id))
+        }
+    }
+
     fn remove_object(&mut self, id: u64) -> RenderResult<()> {
         let obj = self
             .objects

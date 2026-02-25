@@ -388,6 +388,13 @@ impl RenderBackend for BabylonBackend {
     ) -> RenderResult<u64> {
         self.log_stub(&format!("create_object: {:?}", geometry));
         let id = self.objects.len() as u64 + 1;
+        self.objects.insert(
+            id,
+            BabylonObject {
+                visible: true,
+                highlighted: false,
+            },
+        );
         Ok(id)
     }
 
@@ -443,6 +450,15 @@ impl RenderBackend for BabylonBackend {
     }
 
     fn set_highlighted(&mut self, id: u64, highlighted: bool) -> RenderResult<()> {
+        self.set_highlighted_with_color(id, highlighted, 0)
+    }
+
+    fn set_highlighted_with_color(
+        &mut self,
+        id: u64,
+        highlighted: bool,
+        color_index: u8,
+    ) -> RenderResult<()> {
         let obj = self
             .objects
             .get_mut(&id)
@@ -454,7 +470,14 @@ impl RenderBackend for BabylonBackend {
         {
             // Add glow layer when highlighted
             if highlighted {
-                let glow_color = js_sys::eval("new BABYLON.Color3(0.2, 0.4, 1.0)").unwrap();
+                let palette = [
+                    "new BABYLON.Color3(1.0, 0.49, 0.0)",
+                    "new BABYLON.Color3(0.2, 0.4, 1.0)",
+                    "new BABYLON.Color3(0.2, 0.8, 0.4)",
+                    "new BABYLON.Color3(0.9, 0.2, 0.3)",
+                ];
+                let color_expr = palette[(color_index as usize) % palette.len()];
+                let glow_color = js_sys::eval(color_expr).unwrap();
                 js_sys::Reflect::set(&obj.js_mesh, &"outlineColor".into(), &glow_color).ok();
                 js_sys::Reflect::set(
                     &obj.js_mesh,
@@ -471,6 +494,38 @@ impl RenderBackend for BabylonBackend {
                 .ok();
             }
         }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        self.log_stub(&format!(
+            "set_highlighted_with_color: id={id}, highlighted={highlighted}, color={color_index}"
+        ));
+
+        Ok(())
+    }
+
+    fn set_annotation(
+        &mut self,
+        anchor_id: u64,
+        _label_text: &str,
+        _offset: [f64; 3],
+        is_active: bool,
+    ) -> RenderResult<()> {
+        if !self.objects.contains_key(&anchor_id) {
+            return Err(RenderError::ObjectNotFound(anchor_id));
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let escaped = _label_text.replace('\'', "\\'");
+            let js = format!(
+                "window.setBabylonAnnotation && window.setBabylonAnnotation({}, '{}', {}, {}, {}, {})",
+                anchor_id, escaped, _offset[0], _offset[1], _offset[2], is_active
+            );
+            js_sys::eval(&js).map_err(|_| RenderError::UpdateFailed)?;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        self.log_stub(&format!("set_annotation: id={anchor_id}, active={is_active}"));
 
         Ok(())
     }

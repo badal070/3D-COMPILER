@@ -17,6 +17,35 @@ pub struct AstFile {
     pub compound_motions: Vec<AstCompoundMotion>,
     pub trajectories: Vec<AstTrajectory>,
     pub timelines: Vec<AstTimeline>,
+    pub concept_ref: Option<ConceptAnnotation>,
+    pub annotations: Vec<AnnotationNode>,
+    pub highlight_schedule: Vec<HighlightScheduleEntry>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConceptAnnotation {
+    pub concept_id: String,
+    pub section_id: String,
+    pub step_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnnotationNode {
+    pub label_text: String,
+    pub anchor_entity_id: String,
+    pub position_offset: [f64; 3],
+    pub equation_node_id: Option<String>,
+    pub highlight_token: Option<String>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone)]
+pub struct HighlightScheduleEntry {
+    pub at_time: f64,
+    pub highlight_token: String,
+    pub entity_id: String,
+    pub color_index: u8,
     pub span: SourceSpan,
 }
 
@@ -164,11 +193,12 @@ pub struct AstField {
 pub enum AstValue {
     Number(f64, SourceSpan),
     String(String, SourceSpan),
+    Boolean(bool, SourceSpan),
     Identifier(String, SourceSpan),
     List(Vec<AstValue>, SourceSpan),
     Vector(Vec<f64>, SourceSpan),
     Matrix(Vec<Vec<f64>>, SourceSpan),
-    MathExpression(MathExpression, SourceSpan),
+    MathExpression(AnnotatedExpr, SourceSpan),
 }
 
 impl AstValue {
@@ -176,6 +206,7 @@ impl AstValue {
         match self {
             AstValue::Number(_, span)
             | AstValue::String(_, span)
+            | AstValue::Boolean(_, span)
             | AstValue::Identifier(_, span)
             | AstValue::List(_, span)
             | AstValue::Vector(_, span)
@@ -194,6 +225,13 @@ impl AstValue {
     pub fn as_string(&self) -> Option<&str> {
         match self {
             AstValue::String(s, _) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_boolean(&self) -> Option<bool> {
+        match self {
+            AstValue::Boolean(v, _) => Some(*v),
             _ => None,
         }
     }
@@ -241,6 +279,13 @@ pub enum MathObjectNode {
 }
 
 #[derive(Debug, Clone)]
+pub struct AnnotatedExpr {
+    pub node_id: String,
+    pub highlight_token: Option<String>,
+    pub expr: MathExpression,
+}
+
+#[derive(Debug, Clone)]
 pub enum MathExpression {
     Variable(String),
     Constant(MathConstant),
@@ -249,37 +294,37 @@ pub enum MathExpression {
         real: f64,
         imag: f64,
     },
-    BinaryOp(Box<MathExpression>, MathBinaryOperator, Box<MathExpression>),
-    UnaryOp(MathUnaryOperator, Box<MathExpression>),
-    FunctionCall(String, Vec<MathExpression>),
+    BinaryOp(Box<AnnotatedExpr>, MathBinaryOperator, Box<AnnotatedExpr>),
+    UnaryOp(MathUnaryOperator, Box<AnnotatedExpr>),
+    FunctionCall(String, Vec<AnnotatedExpr>),
     Derivative {
-        expression: Box<MathExpression>,
+        expression: Box<AnnotatedExpr>,
         variable: String,
         order: usize,
     },
     Integral {
-        expression: Box<MathExpression>,
+        expression: Box<AnnotatedExpr>,
         variable: String,
         bounds: Option<Box<IntervalConstraint>>,
     },
     Limit {
-        expression: Box<MathExpression>,
+        expression: Box<AnnotatedExpr>,
         variable: String,
         approach: f64,
     },
     Summation {
-        expression: Box<MathExpression>,
+        expression: Box<AnnotatedExpr>,
         variable: String,
         bounds: IntervalConstraint,
     },
     Product {
-        expression: Box<MathExpression>,
+        expression: Box<AnnotatedExpr>,
         variable: String,
         bounds: IntervalConstraint,
     },
-    Piecewise(Vec<(MathCondition, MathExpression)>),
-    MatrixExpr(Vec<Vec<MathExpression>>),
-    VectorExpr(Vec<MathExpression>),
+    Piecewise(Vec<(MathCondition, AnnotatedExpr)>),
+    MatrixExpr(Vec<Vec<AnnotatedExpr>>),
+    VectorExpr(Vec<AnnotatedExpr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,7 +358,7 @@ pub enum MathUnaryOperator {
 pub struct FunctionNode {
     pub name: String,
     pub parameters: Vec<String>,
-    pub body: MathExpression,
+    pub body: AnnotatedExpr,
     pub domain: DomainConstraint,
     pub range: Option<RangeConstraint>,
     pub properties: FunctionProperties,
@@ -324,7 +369,7 @@ pub struct FunctionNode {
 pub struct CurveNode {
     pub name: String,
     pub curve_type: CurveType,
-    pub definition: MathExpression,
+    pub definition: AnnotatedExpr,
     pub parameter: Option<String>,
     pub domain: DomainConstraint,
     pub properties: CurveProperties,
@@ -335,7 +380,7 @@ pub struct CurveNode {
 pub struct SurfaceNode {
     pub name: String,
     pub surface_type: SurfaceType,
-    pub definition: MathExpression,
+    pub definition: AnnotatedExpr,
     pub parameters: Option<(String, String)>,
     pub domain: DomainConstraint,
     pub properties: SurfaceProperties,
@@ -345,7 +390,7 @@ pub struct SurfaceNode {
 #[derive(Debug, Clone)]
 pub struct VectorFieldNode {
     pub name: String,
-    pub components: Vec<MathExpression>,
+    pub components: Vec<AnnotatedExpr>,
     pub dimension: usize,
     pub domain: DomainConstraint,
     pub span: SourceSpan,
@@ -354,7 +399,7 @@ pub struct VectorFieldNode {
 #[derive(Debug, Clone)]
 pub struct ScalarFieldNode {
     pub name: String,
-    pub expression: MathExpression,
+    pub expression: AnnotatedExpr,
     pub domain: DomainConstraint,
     pub span: SourceSpan,
 }
@@ -363,7 +408,7 @@ pub struct ScalarFieldNode {
 pub struct TransformationNode {
     pub name: String,
     pub transform_type: TransformationType,
-    pub expression: MathExpression,
+    pub expression: AnnotatedExpr,
     pub span: SourceSpan,
 }
 
@@ -372,7 +417,7 @@ pub struct DifferentialEquationNode {
     pub name: String,
     pub equation_type: DifferentialEquationType,
     pub order: usize,
-    pub equation: MathExpression,
+    pub equation: AnnotatedExpr,
     pub initial_conditions: Vec<MathCondition>,
     pub boundary_conditions: Vec<MathCondition>,
     pub span: SourceSpan,
@@ -383,7 +428,7 @@ pub struct MatrixDefinitionNode {
     pub name: String,
     pub rows: usize,
     pub cols: usize,
-    pub elements: Vec<Vec<MathExpression>>,
+    pub elements: Vec<Vec<AnnotatedExpr>>,
     pub span: SourceSpan,
 }
 
@@ -466,7 +511,7 @@ pub struct RangeConstraint {
 
 #[derive(Debug, Clone)]
 pub struct MathConstraint {
-    pub expression: MathExpression,
+    pub expression: AnnotatedExpr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -479,15 +524,15 @@ pub enum MathSpace {
 
 #[derive(Debug, Clone)]
 pub struct IntervalConstraint {
-    pub lower: Box<MathExpression>,
-    pub upper: Box<MathExpression>,
+    pub lower: Box<AnnotatedExpr>,
+    pub upper: Box<AnnotatedExpr>,
     pub lower_inclusive: bool,
     pub upper_inclusive: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct MathCondition {
-    pub expression: MathExpression,
+    pub expression: AnnotatedExpr,
 }
 
 /// Constraint definition

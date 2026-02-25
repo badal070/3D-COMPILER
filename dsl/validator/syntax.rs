@@ -546,8 +546,8 @@ impl SyntaxValidator {
         }
     }
 
-    fn validate_math_expression(&mut self, expr: &MathExpression, span: SourceSpan) {
-        match expr {
+    fn validate_math_expression(&mut self, expr: &AnnotatedExpr, span: SourceSpan) {
+        match &expr.expr {
             MathExpression::Number(n) => {
                 if !n.is_finite() {
                     self.errors.add(DslError::new(

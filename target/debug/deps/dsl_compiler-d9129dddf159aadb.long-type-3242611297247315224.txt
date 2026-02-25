@@ -1,0 +1,1 @@
+std::iter::Map<std::slice::Iter<'_, ast::AnnotatedExpr>, for<'a> fn(&'a ast::MathExpression) -> std::string::String {IrLowering::math_expr_to_string}>

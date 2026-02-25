@@ -3,91 +3,1105 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>edu3d Visualizer</title>
+  <title>edu3d Visualizer Pro</title>
   <style>
-    body, html { height: 100%; margin: 0; font-family: Arial, sans-serif; }
-    .container { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
-    .sidebar { background: #f5f5f5; padding: 12px; box-sizing: border-box; border-right: 1px solid #ddd; }
-    .main { position: relative; }
-    #canvas { width: 100%; height: 100%; display: block; }
-    .panel { margin-bottom: 12px; }
-    button { display: inline-block; padding: 8px 12px; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    :root {
+      --bg-primary: #0f0f13;
+      --bg-secondary: #1a1a23;
+      --bg-panel: rgba(255, 255, 255, 0.03);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --accent-primary: #00d4ff;
+      --accent-secondary: #7b61ff;
+      --accent-success: #00ffa3;
+      --accent-danger: #ff4757;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0b0;
+      --shadow-glow: 0 0 20px rgba(0, 212, 255, 0.3);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body, html {
+      height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 320px 1fr 360px;
+      height: 100vh;
+      background: linear-gradient(135deg, var(--bg-primary) 0%, #16161d 100%);
+      align-items: stretch;
+    }
+
+    /* Sidebar Styling */
+    .sidebar {
+      background: var(--bg-secondary);
+      padding: 24px;
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      overflow-y: auto;
+      backdrop-filter: blur(10px);
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 18px;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .sidebar-title {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+    }
+
+    .sidebar-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+
+    /* Control Panels */
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(20px);
+      transition: all 0.3s ease;
+    }
+
+    .panel:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .panel-icon {
+      width: 16px;
+      height: 16px;
+      opacity: 0.7;
+    }
+
+    /* Connection Status */
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: rgba(255, 71, 87, 0.15);
+      border: 1px solid rgba(255, 71, 87, 0.3);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--accent-danger);
+      transition: all 0.3s ease;
+    }
+
+    .status-indicator.connected {
+      background: rgba(0, 255, 163, 0.15);
+      border-color: rgba(0, 255, 163, 0.3);
+      color: var(--accent-success);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* Buttons */
+    .button-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      flex: 1;
+      min-width: 120px;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    button::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+      transition: left 0.5s;
+    }
+
+    button:hover::before {
+      left: 100%;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      color: white;
+      box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(0, 212, 255, 0.4);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    /* Snapshot Display */
+    .snapshot-container {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      height: 350px;
+      overflow: auto;
+      position: relative;
+    }
+
+    .snapshot-container::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .snapshot-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .snapshot-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+
+    .snapshot-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .snapshot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .snapshot-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent-primary);
+      font-weight: 600;
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: rgba(0, 212, 255, 0.15);
+      border-radius: 4px;
+      font-size: 10px;
+      color: var(--accent-primary);
+      font-weight: 600;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* JSON Syntax Highlighting */
+    .json-key { color: #7ee787; }
+    .json-string { color: #ffa657; }
+    .json-number { color: #79c0ff; }
+    .json-boolean { color: #ff7b72; }
+    .json-null { color: #ff7b72; }
+
+    /* Main Canvas Area */
+    .main {
+      position: relative;
+      background: radial-gradient(circle at 50% 50%, #1a1a2e 0%, #0f0f13 100%);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #canvas {
+      width: 80%;
+      height: 80%;
+      display: block;
+      outline: none;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    }
+
+    /* Overlay Controls */
+    .overlay-controls {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      display: flex;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    .overlay-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      color: var(--text-secondary);
+      font-size: 18px;
+    }
+
+    .overlay-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+      transform: scale(1.05);
+    }
+
+    /* Stats Display */
+    .stats-overlay {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      display: flex;
+      gap: 16px;
+      z-index: 10;
+    }
+
+    .stat-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px 20px;
+      backdrop-filter: blur(10px);
+      min-width: 120px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Info bar at bottom */
+    #infoBar {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 12px;
+      background: rgba(0,0,0,0.5);
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      font-size: 13px;
+      z-index: 40;
+      backdrop-filter: blur(6px);
+    }
+
+    /* Loading Animation */
+    .loading-ring {
+      display: none;
+      width: 20px;
+      height: 20px;
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--accent-primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .container {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+      }
+      .sidebar {
+        max-height: 40vh;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+      }
+    }
+
+    /* Grid Background Effect */
+    .grid-bg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: 
+        linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+      background-size: 50px 50px;
+      pointer-events: none;
+      z-index: 0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="sidebar">
-      <h3>Controls</h3>
-      <div class="panel">
-        <button id="connect">Connect WS</button>
-        <button id="disconnect">Disconnect</button>
+      <div class="sidebar-header">
+        <div class="logo">3D</div>
+        <div>
+          <div class="sidebar-title">edu3d Visualizer</div>
+          <div class="sidebar-subtitle">Real-time WebSocket Stream</div>
+        </div>
       </div>
+
       <div class="panel">
-        <h4>Snapshot</h4>
-        <pre id="snapshot" style="white-space: pre-wrap; background:#fff; padding:8px; border:1px solid #ddd; height:300px; overflow:auto;"></pre>
+        <div class="panel-header">
+          <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+          Connection Control
+        </div>
+        
+        <div style="margin-bottom: 16px;">
+          <span id="status" class="status-indicator">
+            <span class="status-dot"></span>
+            Disconnected
+          </span>
+        </div>
+
+        <div class="button-group">
+          <button id="connect" class="btn-primary">
+            <span style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+              <span class="loading-ring" id="connectSpinner"></span>
+              <span id="connectText">Connect</span>
+            </span>
+          </button>
+          <button id="disconnect" class="btn-secondary" disabled>Disconnect</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20v-6"/>
+            <path d="M6 12h12"/>
+          </svg>
+          DSL Renderer
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary);">
+            <input type="checkbox" id="translateToggle" style="transform:scale(1.1);" checked />
+            Translate NL -> DSL
+          </label>
+          <textarea id="dslInput" rows="4" placeholder="Enter DSL or NL prompt (e.g. 'move cube to 1 0 2')" style="width:100%; border-radius:8px; padding:8px; background:transparent; color:var(--text-primary); border:1px solid var(--border-color);"></textarea>
+          <div style="display:flex; gap:8px;">
+            <button id="renderDsl" class="btn-primary">Render</button>
+            <button id="clearDsl" class="btn-secondary">Clear</button>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+            <label style="font-size:13px; color:var(--text-secondary); display:flex; align-items:center; gap:8px;">
+              Movement Speed
+            </label>
+            <input id="moveSpeed" type="number" step="0.01" min="0" value="0.1" style="width:100px; background:transparent; border:1px solid var(--border-color); padding:6px; border-radius:8px; color:var(--text-primary);" />
+            <input id="moveSpeedRange" type="range" min="0" max="5" step="0.01" value="0.1" style="width:160px;" />
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary);">
+              <input id="quantizeToggle" type="checkbox" checked /> Quantize
+            </label>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="main">
+      <div class="grid-bg"></div>
+      <canvas id="canvas"></canvas>
+      
+      <div class="overlay-controls">
+        <div class="overlay-btn" id="resetCam" title="Reset Camera">⌖</div>
+        <div class="overlay-btn" id="toggleGrid" title="Toggle Grid">⊞</div>
+        <div class="overlay-btn" id="toggleAuto" title="Auto Rotate">↻</div>
+      </div>
+
+      <div class="stats-overlay">
+        <div class="stat-card">
+          <div class="stat-label">Position X</div>
+          <div class="stat-value" id="posX">0.00</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Position Y</div>
+          <div class="stat-value" id="posY">0.00</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Position Z</div>
+          <div class="stat-value" id="posZ">0.00</div>
+        </div>
       </div>
     </div>
-    <div class="main">
-      <canvas id="canvas"></canvas>
+
+    <div id="infoBar">Compiler: unknown</div>
+
+    <div class="sidebar" style="border-left:1px solid var(--border-color);">
+      <div class="panel">
+        <div class="panel-header">
+          <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+          Live Data Stream
+        </div>
+
+        <div class="snapshot-container" id="snapshotBox">
+          <div class="snapshot-header">
+            <span class="snapshot-title">JSON Payload / IR</span>
+            <span id="liveBadge" style="display: none;" class="live-badge">● LIVE</span>
+          </div>
+          <pre id="snapshot" style="margin: 0; white-space: pre-wrap; word-wrap: break-word;">Waiting for connection...</pre>
+        </div>
+      </div>
+      <div class="panel" id="entityControlsPanel" style="margin-top:12px;">
+        <div class="panel-header">Entity Controls</div>
+        <div id="entityControls" style="display:flex; flex-direction:column; gap:8px; max-height:280px; overflow:auto; padding-top:8px;"></div>
+      </div>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
   <script>
-  // Simple Three.js scene that updates an object from snapshot messages
-  let scene, camera, renderer, cube;
-  function init() {
-    const canvas = document.getElementById('canvas');
-    renderer = new THREE.WebGLRenderer({ canvas });
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    renderer.setSize(window.innerWidth - 320, window.innerHeight);
+    // Scene Setup
+    let scene, camera, renderer, gridHelper;
+    let isAutoRotating = false;
 
-    scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(75, (window.innerWidth - 320)/window.innerHeight, 0.1, 1000);
-    camera.position.z = 5;
+    // Multi-entity scene state
+    const meshes = {}; // id -> THREE.Mesh
 
-    const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(5, 10, 7.5);
-    scene.add(light);
+    // Orbit / input state for touchpad and pointer controls
+    let isPointerDown = false;
+    let pointerId = null;
+    let lastX = 0, lastY = 0;
+    let theta = 0, phi = 0, radius = 10;
+    const minRadius = 1.0, maxRadius = 100.0;
 
-    const geometry = new THREE.BoxGeometry(1,1,1);
-    const material = new THREE.MeshStandardMaterial({ color: 0x0077ff });
-    cube = new THREE.Mesh(geometry, material);
-    scene.add(cube);
+    function init() {
+      const canvas = document.getElementById('canvas');
+      
+      // Renderer setup with alpha and antialiasing
+      renderer = new THREE.WebGLRenderer({ 
+        canvas, 
+        antialias: true, 
+        alpha: true 
+      });
+      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    animate();
-  }
+      // Scene
+      scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x0f0f13, 0.02);
 
-  function animate() {
-    requestAnimationFrame(animate);
-    renderer.render(scene, camera);
-  }
+      // Camera
+      camera = new THREE.PerspectiveCamera(
+        75, 
+        canvas.clientWidth / canvas.clientHeight, 
+        0.1, 
+        1000
+      );
+      camera.position.set(5, 3, 5);
+      camera.lookAt(0, 0, 0);
 
-  let ws;
-  document.getElementById('connect').addEventListener('click', () => {
-    if (ws && ws.readyState === WebSocket.OPEN) return;
-    ws = new WebSocket('ws://' + window.location.host + '/ws');
-    ws.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      document.getElementById('snapshot').textContent = JSON.stringify(data, null, 2);
-      const pos = data.objects[0].position;
-      cube.position.set(pos[0], pos[1], pos[2]);
-    };
-    ws.onopen = () => console.log('ws open');
-    ws.onclose = () => console.log('ws closed');
-  });
-  document.getElementById('disconnect').addEventListener('click', () => {
-    if (ws) ws.close();
-  });
+      // Initialize spherical orbit values from camera position
+      const dx = camera.position.x - 0;
+      const dy = camera.position.y - 0;
+      const dz = camera.position.z - 0;
+      radius = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      phi = Math.acos((camera.position.y - 0) / Math.max(1e-6, radius));
+      theta = Math.atan2(camera.position.x - 0, camera.position.z - 0);
 
-  window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth - 320, window.innerHeight);
-    camera.aspect = (window.innerWidth - 320)/window.innerHeight;
-    camera.updateProjectionMatrix();
-  });
+      // Lighting setup
+      const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+      scene.add(ambientLight);
 
-  init();
+      const dirLight = new THREE.DirectionalLight(0x00d4ff, 1);
+      dirLight.position.set(5, 10, 7);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.width = 2048;
+      dirLight.shadow.mapSize.height = 2048;
+      scene.add(dirLight);
+
+      const spotLight = new THREE.SpotLight(0x7b61ff, 0.8);
+      spotLight.position.set(-5, 5, -5);
+      spotLight.lookAt(0, 0, 0);
+      scene.add(spotLight);
+
+      // Grid
+      gridHelper = new THREE.GridHelper(20, 20, 0x00d4ff, 0x1a1a2e);
+      gridHelper.position.y = -2;
+      scene.add(gridHelper);
+
+      // Note: meshes will be created dynamically when snapshots arrive.
+
+      // Animation loop with interpolation
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Server-authoritative positions: client applies snapshot positions directly.
+      // Rotate meshes for a small idle animation and update stats from first mesh.
+      const ids = Object.keys(meshes);
+      for (let i = 0; i < ids.length; ++i) {
+        const mesh = meshes[ids[i]];
+        if (mesh) {
+          if (!isAutoRotating) mesh.rotation.y += 0.01 + i * 0.002;
+          else mesh.rotation.y += 0.02;
+        }
+      }
+      if (ids.length > 0) {
+        const firstMesh = meshes[ids[0]];
+        if (firstMesh) {
+          document.getElementById('posX').textContent = firstMesh.position.x.toFixed(2);
+          document.getElementById('posY').textContent = firstMesh.position.y.toFixed(2);
+          document.getElementById('posZ').textContent = firstMesh.position.z.toFixed(2);
+        }
+      }
+
+      // Update camera orbit from spherical coords
+      // clamp phi
+      phi = Math.max(0.01, Math.min(Math.PI - 0.01, phi));
+      const sinPhi = Math.sin(phi);
+      const camTargetX = 0, camTargetY = 0, camTargetZ = 0;
+      camera.position.x = radius * sinPhi * Math.sin(theta) + camTargetX;
+      camera.position.y = radius * Math.cos(phi) + camTargetY;
+      camera.position.z = radius * sinPhi * Math.cos(theta) + camTargetZ;
+      camera.lookAt(camTargetX, camTargetY, camTargetZ);
+
+      renderer.render(scene, camera);
+    }
+
+    // WebSocket Logic
+    let ws;
+    const connectBtn = document.getElementById('connect');
+    const disconnectBtn = document.getElementById('disconnect');
+    const statusIndicator = document.getElementById('status');
+    const snapshotPre = document.getElementById('snapshot');
+    const liveBadge = document.getElementById('liveBadge');
+    const connectSpinner = document.getElementById('connectSpinner');
+    const connectText = document.getElementById('connectText');
+
+    function updateStatus(connected) {
+      if (connected) {
+        statusIndicator.classList.add('connected');
+        statusIndicator.innerHTML = '<span class="status-dot"></span> Connected';
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+        liveBadge.style.display = 'inline-flex';
+        connectSpinner.style.display = 'none';
+        connectText.textContent = 'Connected';
+      } else {
+        statusIndicator.classList.remove('connected');
+        statusIndicator.innerHTML = '<span class="status-dot"></span> Disconnected';
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+        liveBadge.style.display = 'none';
+        connectSpinner.style.display = 'none';
+        connectText.textContent = 'Connect';
+      }
+    }
+
+    function syntaxHighlight(json) {
+      if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+      json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+        let cls = 'json-number';
+        if (/^"/.test(match)) {
+          if (/:$/.test(match)) {
+            cls = 'json-key';
+          } else {
+            cls = 'json-string';
+          }
+        } else if (/true|false/.test(match)) {
+          cls = 'json-boolean';
+        } else if (/null/.test(match)) {
+          cls = 'json-null';
+        }
+        return '<span class="' + cls + '">' + match + '</span>';
+      });
+    }
+
+    function colorFromString(s) {
+      // simple deterministic color picker from string
+      let h = 0;
+      for (let i = 0; i < s.length; ++i) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      const hue = h % 360;
+      // convert hsl to hex quickly
+      const col = `hsl(${hue} 90% 60%)`;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = col;
+      ctx.fillRect(0, 0, 1, 1);
+      return ctx.getImageData(0, 0, 1, 1).data;
+    }
+
+    function colorHexFromString(s) {
+      // fallback simple palette based on char codes
+      let n = 0;
+      for (let i = 0; i < s.length; ++i) n = n * 31 + s.charCodeAt(i);
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      return (r << 16) | (g << 8) | b;
+    }
+
+    function createMeshForObject(obj) {
+      const size = 1;
+      // choose geometry based on primitive
+      let geometry;
+      const prim = (obj.primitive || '').toString().toLowerCase();
+      if (prim === 'sphere' || prim === 'ball') {
+        geometry = new THREE.SphereGeometry(0.6, 32, 16);
+      } else if (prim === 'cylinder' || prim === 'cyl') {
+        geometry = new THREE.CylinderGeometry(0.4, 0.4, 1.2, 16);
+      } else if (prim === 'cone') {
+        geometry = new THREE.ConeGeometry(0.6, 1.2, 16);
+      } else {
+        geometry = new THREE.BoxGeometry(size, size, size);
+      }
+      const color = colorHexFromString(String(obj.id || obj.label || 'o'));
+      const material = new THREE.MeshStandardMaterial({ color: color, metalness: 0.3, roughness: 0.6 });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+
+      const edges = new THREE.EdgesGeometry(geometry);
+      const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.2, transparent: true });
+      const wireframe = new THREE.LineSegments(edges, lineMaterial);
+      mesh.add(wireframe);
+      return mesh;
+    }
+
+    function updateSceneFromSnapshot(snapshot) {
+      if (!snapshot || !Array.isArray(snapshot.objects)) return;
+      const incoming = snapshot.objects;
+      const keep = new Set();
+      for (let i = 0; i < incoming.length; ++i) {
+        const o = incoming[i];
+        const id = String(o.id || o.label || i);
+        keep.add(id);
+        const pos = (o.position && o.position.length === 3) ? { x: o.position[0], y: o.position[1], z: o.position[2] } : { x: 0, y: 0, z: 0 };
+        if (!meshes[id]) {
+          meshes[id] = createMeshForObject(o);
+        }
+        // server authoritative: set position directly from snapshot
+        try { meshes[id].position.set(pos.x, pos.y, pos.z); } catch (e) {}
+      }
+
+      // Remove meshes not present
+      Object.keys(meshes).forEach((id) => {
+        if (!keep.has(id)) {
+          try { scene.remove(meshes[id]); } catch (e) {}
+          delete meshes[id];
+        }
+      });
+
+      // Update entity controls UI
+      updateEntityControls(incoming);
+    }
+
+    // Entity controls: fetch global/entity configs and render per-entity speed controls
+    let _cachedConfigs = { global: null, entities: {} };
+    async function fetchConfigs() {
+      try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        _cachedConfigs = data || _cachedConfigs;
+        return _cachedConfigs;
+      } catch (e) {
+        console.warn('Failed to fetch configs', e);
+        return _cachedConfigs;
+      }
+    }
+
+    function makeEntityControlRow(obj) {
+      const id = String(obj.id || obj.label || '');
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '8px';
+
+      const label = document.createElement('div');
+      label.textContent = id;
+      label.style.flex = '0 0 120px';
+      label.style.fontSize = '13px';
+      label.style.color = 'var(--text-secondary)';
+
+      const num = document.createElement('input');
+      num.type = 'number';
+      num.step = '0.01';
+      num.min = '0';
+      num.style.width = '80px';
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = '0';
+      slider.max = '5';
+      slider.step = '0.01';
+      slider.style.flex = '1';
+
+      const cfg = (_cachedConfigs && _cachedConfigs.entities && _cachedConfigs.entities[id]) || {};
+      const initial = (cfg && cfg.speed) || _cachedConfigs.global && _cachedConfigs.global.speed || 0.1;
+      num.value = initial;
+      slider.value = initial;
+
+      // on change, POST to /api/config/entity
+      function postEntityConfig() {
+        const v = parseFloat(num.value || slider.value || '0.1');
+        fetch('/api/config/entity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id, speed: v })
+        }).catch((e) => console.warn('Failed to set entity config', e));
+      }
+
+      num.addEventListener('input', () => { slider.value = num.value; postEntityConfig(); });
+      slider.addEventListener('input', () => { num.value = slider.value; postEntityConfig(); });
+
+      row.appendChild(label);
+      row.appendChild(num);
+      row.appendChild(slider);
+      return row;
+    }
+
+    async function updateEntityControls(objects) {
+      await fetchConfigs();
+      const container = document.getElementById('entityControls');
+      if (!container) return;
+      // Clear and build controls for current objects
+      container.innerHTML = '';
+      for (let i = 0; i < objects.length; ++i) {
+        const obj = objects[i];
+        const row = makeEntityControlRow(obj);
+        container.appendChild(row);
+      }
+    }
+
+    connectBtn.addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) return;
+      
+      connectSpinner.style.display = 'inline-block';
+      connectText.textContent = 'Connecting...';
+      
+      ws = new WebSocket('ws://' + window.location.host + '/ws');
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        updateStatus(true);
+      };
+      
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          
+          // Update JSON display with syntax highlighting
+          snapshotPre.innerHTML = syntaxHighlight(data);
+
+          // Sync scene to snapshot (supports multi-entity)
+          updateSceneFromSnapshot(data);
+        } catch (e) {
+          console.error('Invalid JSON:', e);
+          snapshotPre.textContent = ev.data;
+        }
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket closed');
+        updateStatus(false);
+        snapshotPre.textContent = 'Connection closed. Click Connect to reconnect.';
+      };
+      
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        updateStatus(false);
+        snapshotPre.textContent = 'Connection error. Check server status.';
+      };
+    });
+
+    disconnectBtn.addEventListener('click', () => {
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+    });
+
+    // Overlay Controls
+    document.getElementById('resetCam').addEventListener('click', () => {
+      camera.position.set(5, 3, 5);
+      camera.lookAt(0, 0, 0);
+    });
+
+    document.getElementById('toggleGrid').addEventListener('click', () => {
+      gridHelper.visible = !gridHelper.visible;
+    });
+
+    document.getElementById('toggleAuto').addEventListener('click', (e) => {
+      isAutoRotating = !isAutoRotating;
+      e.target.style.color = isAutoRotating ? 'var(--accent-primary)' : 'var(--text-secondary)';
+    });
+
+    // DSL Render UI handlers
+    const renderBtn = document.getElementById('renderDsl');
+    const clearBtn = document.getElementById('clearDsl');
+    const dslInput = document.getElementById('dslInput');
+
+    renderBtn.addEventListener('click', async () => {
+      if (!dslInput) return;
+      renderBtn.disabled = true;
+      try {
+        let dslText = dslInput.value;
+        const useTranslate = document.getElementById('translateToggle') ? document.getElementById('translateToggle').checked : false;
+        if (useTranslate && dslText && dslText.trim().length > 0) {
+          try {
+            const tRes = await fetch('/api/translate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ nl: dslText })
+            });
+            const tData = await tRes.json();
+            if (tData && tData.dsl && tData.dsl.length > 0) {
+              dslText = tData.dsl;
+            }
+          } catch (e) {
+            console.warn('Translation failed, falling back to input as DSL', e);
+          }
+        }
+
+        const res = await fetch('/api/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dsl: dslText })
+        });
+        const data = await res.json();
+        const ir = data.ir;
+        const snapshotData = data.snapshot || data;
+        snapshotPre.innerHTML = syntaxHighlight(ir || snapshotData);
+        // show which engine produced the IR (rust compiler vs sample parser)
+        try {
+          const infoBar = document.getElementById('infoBar');
+          if (data && data.ir_source === 'rust') infoBar.textContent = 'Compiler: Rust DSL compiler (real)';
+          else if (data && data.ir_source === 'sample') infoBar.textContent = 'Compiler: Sample parser (fallback)';
+          else infoBar.textContent = 'Compiler: none';
+          // show compile error if present
+          if (data && data.ir_error) {
+            infoBar.textContent += ' — Error: ' + String(data.ir_error).split('\n')[0];
+            infoBar.title = String(data.ir_error);
+          } else {
+            infoBar.title = '';
+          }
+        } catch (e) {}
+        // Sync scene to the returned snapshot (supports multiple entities)
+        updateSceneFromSnapshot(snapshotData);
+      } catch (e) {
+        console.error('Render error', e);
+      } finally {
+        renderBtn.disabled = false;
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      dslInput.value = '';
+    });
+
+    // Movement speed slider/number sync and server config posting
+    const speedInput = document.getElementById('moveSpeed');
+    const speedRange = document.getElementById('moveSpeedRange');
+    const quantizeToggle = document.getElementById('quantizeToggle');
+
+    function postConfig() {
+      const speedVal = parseFloat(speedInput.value || speedRange.value || '0.1');
+      const quant = quantizeToggle.checked;
+      fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speed: speedVal, quantize: quant })
+      }).catch((e) => console.warn('Failed to set server config', e));
+    }
+
+    if (speedInput && speedRange) {
+      // Keep values in sync
+      speedInput.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value || '0');
+        if (!Number.isNaN(v)) speedRange.value = v;
+        postConfig();
+      });
+      speedRange.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value || '0');
+        speedInput.value = v;
+        postConfig();
+      });
+    }
+
+    if (quantizeToggle) {
+      quantizeToggle.addEventListener('change', () => postConfig());
+    }
+
+    // Pointer / touchpad camera controls (drag to rotate, wheel to zoom)
+    const canvasEl = document.getElementById('canvas');
+
+    canvasEl.addEventListener('pointerdown', (ev) => {
+      isPointerDown = true;
+      pointerId = ev.pointerId;
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      try { canvasEl.setPointerCapture(pointerId); } catch (e) {}
+    });
+
+    function releasePointer(ev) {
+      if (ev && ev.pointerId !== undefined && ev.pointerId !== pointerId) return;
+      isPointerDown = false;
+      try { canvasEl.releasePointerCapture(pointerId); } catch (e) {}
+      pointerId = null;
+    }
+
+    canvasEl.addEventListener('pointerup', releasePointer);
+    canvasEl.addEventListener('pointercancel', releasePointer);
+
+    canvasEl.addEventListener('pointermove', (ev) => {
+      if (!isPointerDown || ev.pointerId !== pointerId) return;
+      const dx = ev.clientX - lastX;
+      const dy = ev.clientY - lastY;
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      const ROT_SPEED = 0.005;
+      theta -= dx * ROT_SPEED;
+      phi -= dy * ROT_SPEED;
+    });
+
+    // Wheel for zooming (supports touchpad two-finger scroll)
+    canvasEl.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const ZOOM_SPEED = 0.0015;
+      const factor = 1 + ev.deltaY * ZOOM_SPEED;
+      radius = Math.max(minRadius, Math.min(maxRadius, radius * factor));
+    }, { passive: false });
+
+    // Responsive handling
+    window.addEventListener('resize', () => {
+      const canvas = document.getElementById('canvas');
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    });
+
+    // Initialize
+    init();
   </script>
 </body>
 </html>

@@ -26,6 +26,34 @@ impl SnapshotBuilder {
             .iter()
             .map(|(id, obj)| self.convert_object(id, obj))
             .collect();
+        let active_highlight_token = state.current_highlight_token.clone();
+        let highlight_schedule = state
+            .highlight_schedule
+            .iter()
+            .map(|entry| SnapshotHighlightEntry {
+                at_time: entry.at_time,
+                highlight_token: entry.highlight_token.clone(),
+                entity_id_hash: self.object_id_hash(&entry.entity_id),
+                color_index: entry.color_index,
+            })
+            .collect::<Vec<_>>();
+        let annotations = state
+            .annotations
+            .iter()
+            .map(|annotation| SnapshotAnnotation {
+                label_text: annotation.label_text.clone(),
+                anchor_object_id: self.object_id_hash(&annotation.anchor_entity_id),
+                position_offset: annotation.position_offset,
+                equation_node_id: annotation.equation_node_id.clone(),
+                highlight_token: annotation.highlight_token.clone(),
+                is_active: annotation
+                    .highlight_token
+                    .as_ref()
+                    .zip(active_highlight_token.as_ref())
+                    .map(|(a, b)| a == b)
+                    .unwrap_or(false),
+            })
+            .collect::<Vec<_>>();
 
         RendererSnapshot {
             tick,
@@ -35,45 +63,43 @@ impl SnapshotBuilder {
             math_preview: None,
             math_renderables: self.build_math_renderables(state),
             focus_ids: vec![], // TODO: implement focus tracking
+            active_highlight_token,
+            highlight_schedule,
+            annotations,
         }
     }
 
     fn build_math_renderables(&self, state: &RuntimeState) -> Vec<SnapshotMathRenderable> {
-        let wave = read_real(state, "wave").or_else(|| read_real(state, "engine.wave"));
-        let decay = read_real(state, "decay").unwrap_or(1.0);
-        let time = read_real(state, "time")
-            .or_else(|| read_real(state, "engine.time"))
-            .unwrap_or(0.0);
-        let integral = read_real(state, "engine.integral_x2_0_1").unwrap_or(0.3333333333);
-
-        let mut out = Vec::new();
-        if let Some(amplitude) = wave {
-            out.push(SnapshotMathRenderable::Function {
-                id: 9_000_001,
-                domain: [-3.0, 3.0],
-                resolution: 64,
-                amplitude,
-                frequency: decay.max(0.1),
-                phase: time,
-            });
-            out.push(SnapshotMathRenderable::Surface {
-                id: 9_000_002,
-                domain_x: [-2.0, 2.0],
-                domain_y: [-2.0, 2.0],
-                resolution: [24, 24],
-                amplitude: amplitude.abs() + 0.25,
-                phase: time,
-            });
-            out.push(SnapshotMathRenderable::Field {
-                id: 9_000_003,
-                domain_x: [-2.0, 2.0],
-                domain_y: [-2.0, 2.0],
-                resolution: [20, 20],
-                scale: integral,
-                phase: time,
-            });
-        }
-        out
+        state
+            .math_renderables
+            .iter()
+            .map(|entry| match entry.kind {
+                crate::state::MathRenderableKind::Function => SnapshotMathRenderable::Function {
+                    id: entry.id,
+                    domain: entry.domain_x,
+                    resolution: entry.resolution[0],
+                    amplitude: entry.amplitude,
+                    frequency: entry.frequency.max(0.1),
+                    phase: entry.phase,
+                },
+                crate::state::MathRenderableKind::Surface => SnapshotMathRenderable::Surface {
+                    id: entry.id,
+                    domain_x: entry.domain_x,
+                    domain_y: entry.domain_y.unwrap_or([-1.0, 1.0]),
+                    resolution: entry.resolution,
+                    amplitude: entry.amplitude,
+                    phase: entry.phase,
+                },
+                crate::state::MathRenderableKind::Field => SnapshotMathRenderable::Field {
+                    id: entry.id,
+                    domain_x: entry.domain_x,
+                    domain_y: entry.domain_y.unwrap_or([-1.0, 1.0]),
+                    resolution: entry.resolution,
+                    scale: entry.scale,
+                    phase: entry.phase,
+                },
+            })
+            .collect()
     }
 
     fn extract_math_values(&self, state: &RuntimeState) -> Vec<SnapshotMathValue> {
@@ -174,6 +200,27 @@ pub struct RendererSnapshot {
     pub math_preview: Option<SnapshotMathPreview>,
     pub math_renderables: Vec<SnapshotMathRenderable>,
     pub focus_ids: Vec<u64>,
+    pub active_highlight_token: Option<String>,
+    pub highlight_schedule: Vec<SnapshotHighlightEntry>,
+    pub annotations: Vec<SnapshotAnnotation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotHighlightEntry {
+    pub at_time: f64,
+    pub highlight_token: String,
+    pub entity_id_hash: u64,
+    pub color_index: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotAnnotation {
+    pub label_text: String,
+    pub anchor_object_id: u64,
+    pub position_offset: [f64; 3],
+    pub equation_node_id: Option<String>,
+    pub highlight_token: Option<String>,
+    pub is_active: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,13 +296,4 @@ pub struct SnapshotMaterial {
     pub roughness: f32,
     pub opacity: f32,
     pub emissive: [f32; 3],
-}
-
-fn read_real(state: &RuntimeState, key: &str) -> Option<f64> {
-    state.math_values.get(key).and_then(|value| match value {
-        crate::math::MathValue::Real(v) => Some(*v),
-        crate::math::MathValue::Integer(v) => Some(*v as f64),
-        crate::math::MathValue::Rational(num, den) if *den != 0 => Some(*num as f64 / *den as f64),
-        _ => None,
-    })
 }

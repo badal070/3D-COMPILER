@@ -1,0 +1,12 @@
+/home/badal/projects/edu3d/target/debug/deps/writeable-bd58ccd9dd87f3cc.d: /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/lib.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/cmp.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/impls.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/ops.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/parts_write_adapter.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/try_writeable.rs
+
+/home/badal/projects/edu3d/target/debug/deps/libwriteable-bd58ccd9dd87f3cc.rlib: /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/lib.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/cmp.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/impls.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/ops.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/parts_write_adapter.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/try_writeable.rs
+
+/home/badal/projects/edu3d/target/debug/deps/libwriteable-bd58ccd9dd87f3cc.rmeta: /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/lib.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/cmp.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/impls.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/ops.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/parts_write_adapter.rs /home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/try_writeable.rs
+
+/home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/lib.rs:
+/home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/cmp.rs:
+/home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/impls.rs:
+/home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/ops.rs:
+/home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/parts_write_adapter.rs:
+/home/badal/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.2/src/try_writeable.rs:

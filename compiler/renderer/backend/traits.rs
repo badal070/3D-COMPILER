@@ -37,6 +37,27 @@ pub trait RenderBackend: Send {
     /// Set object highlight state
     fn set_highlighted(&mut self, id: u64, highlighted: bool) -> RenderResult<()>;
 
+    /// Set object highlight state with a color table index.
+    fn set_highlighted_with_color(
+        &mut self,
+        id: u64,
+        highlighted: bool,
+        _color_index: u8,
+    ) -> RenderResult<()> {
+        self.set_highlighted(id, highlighted)
+    }
+
+    /// Set or update a label annotation anchored to an object.
+    fn set_annotation(
+        &mut self,
+        _anchor_id: u64,
+        _label_text: &str,
+        _offset: [f64; 3],
+        _is_active: bool,
+    ) -> RenderResult<()> {
+        Ok(())
+    }
+
     /// Remove object from scene
     fn remove_object(&mut self, id: u64) -> RenderResult<()>;
 

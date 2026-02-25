@@ -1,5 +1,6 @@
 use dsl_compiler::ast::{
-    AstFile, AstLibraryImports, AstMotion, AstScene, AstValue, MathBinaryOperator, MathExpression,
+    AnnotatedExpr, AstFile, AstLibraryImports, AstMotion, AstScene, AstValue, MathBinaryOperator,
+    MathExpression,
 };
 use dsl_compiler::errors::SourceSpan;
 use dsl_compiler::lower_to_ir::{IrLowering, IrValue};
@@ -8,13 +9,21 @@ fn span() -> SourceSpan {
     SourceSpan::single_point(1, 1, 0)
 }
 
+fn mk_expr(expr: MathExpression) -> AnnotatedExpr {
+    AnnotatedExpr {
+        node_id: "test_expr".to_string(),
+        highlight_token: None,
+        expr,
+    }
+}
+
 #[test]
 fn lowers_math_expression_into_ir_payload() {
     let s = span();
     let expr = MathExpression::BinaryOp(
-        Box::new(MathExpression::Number(2.0)),
+        Box::new(mk_expr(MathExpression::Number(2.0))),
         MathBinaryOperator::Add,
-        Box::new(MathExpression::Number(3.0)),
+        Box::new(mk_expr(MathExpression::Number(3.0))),
     );
 
     let ast = AstFile {
@@ -49,7 +58,7 @@ fn lowers_math_expression_into_ir_payload() {
                 },
                 dsl_compiler::ast::AstField {
                     name: "expr".to_string(),
-                    value: AstValue::MathExpression(expr, s),
+                    value: AstValue::MathExpression(mk_expr(expr), s),
                     span: s,
                 },
             ],
@@ -59,6 +68,9 @@ fn lowers_math_expression_into_ir_payload() {
         compound_motions: vec![],
         trajectories: vec![],
         timelines: vec![],
+        concept_ref: None,
+        annotations: vec![],
+        highlight_schedule: vec![],
         span: s,
     };
 
@@ -130,6 +142,9 @@ fn lowers_list_values() {
         compound_motions: vec![],
         trajectories: vec![],
         timelines: vec![],
+        concept_ref: None,
+        annotations: vec![],
+        highlight_schedule: vec![],
         span: s,
     };
 

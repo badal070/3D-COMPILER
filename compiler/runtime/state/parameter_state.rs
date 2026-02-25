@@ -28,6 +28,12 @@ pub struct Parameter {
     pub derivation: Option<String>,
     /// Units for display
     pub units: Option<String>,
+    /// Display symbol (typically LaTeX)
+    pub display_symbol: Option<String>,
+    /// Human-readable description
+    pub description: Option<String>,
+    /// Scene entity that visually encodes this parameter
+    pub animation_entity_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +167,9 @@ impl Parameter {
             derived: false,
             derivation: None,
             units: None,
+            display_symbol: None,
+            description: None,
+            animation_entity_id: None,
         }
     }
 
@@ -183,6 +192,21 @@ impl Parameter {
 
     pub fn with_units(mut self, units: String) -> Self {
         self.units = Some(units);
+        self
+    }
+
+    pub fn with_display_symbol(mut self, symbol: String) -> Self {
+        self.display_symbol = Some(symbol);
+        self
+    }
+
+    pub fn with_description(mut self, description: String) -> Self {
+        self.description = Some(description);
+        self
+    }
+
+    pub fn with_animation_entity_id(mut self, entity_id: String) -> Self {
+        self.animation_entity_id = Some(entity_id);
         self
     }
 

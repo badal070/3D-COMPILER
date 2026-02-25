@@ -75,6 +75,9 @@ impl SchemaValidator {
         self.validate_constraints(&ast.constraints);
         self.validate_motions(&ast.motions);
         self.validate_math_objects(&ast.math_objects);
+        self.validate_concept_ref(ast.concept_ref.as_ref());
+        self.validate_annotations(&ast.annotations);
+        self.validate_highlight_schedule(&ast.highlight_schedule);
 
         self.errors.into_result(())
     }
@@ -455,6 +458,7 @@ impl SchemaValidator {
         let actual_type = match value {
             AstValue::Number(_, _) => FieldType::Number,
             AstValue::String(_, _) => FieldType::String,
+            AstValue::Boolean(_, _) => FieldType::Boolean,
             AstValue::Identifier(id, _) => {
                 if id == "true" || id == "false" {
                     FieldType::Boolean
@@ -635,6 +639,93 @@ impl SchemaValidator {
         }
     }
 
+    fn validate_concept_ref(&mut self, concept_ref: Option<&ConceptAnnotation>) {
+        if let Some(concept_ref) = concept_ref {
+            if concept_ref.concept_id.trim().is_empty() {
+                self.errors.add(DslError::new(
+                    ErrorCode::MissingRequiredField,
+                    "concept_ref.concept_id must be non-empty".to_string(),
+                    SourceSpan::single_point(0, 0, 0),
+                    self.file.clone(),
+                ));
+            }
+            if concept_ref.section_id.trim().is_empty() {
+                self.errors.add(DslError::new(
+                    ErrorCode::MissingRequiredField,
+                    "concept_ref.section_id must be non-empty".to_string(),
+                    SourceSpan::single_point(0, 0, 0),
+                    self.file.clone(),
+                ));
+            }
+        }
+    }
+
+    fn validate_annotations(&mut self, annotations: &[AnnotationNode]) {
+        for annotation in annotations {
+            if annotation.anchor_entity_id.trim().is_empty() {
+                self.errors.add(DslError::new(
+                    ErrorCode::MissingRequiredField,
+                    "annotation.anchor is required".to_string(),
+                    annotation.span,
+                    self.file.clone(),
+                ));
+            }
+            if annotation.label_text.trim().is_empty() {
+                self.errors.add(DslError::new(
+                    ErrorCode::MissingRequiredField,
+                    "annotation.label must be non-empty".to_string(),
+                    annotation.span,
+                    self.file.clone(),
+                ));
+            }
+            if annotation.position_offset.iter().any(|v| !v.is_finite()) {
+                self.errors.add(DslError::new(
+                    ErrorCode::InvalidFieldType,
+                    "annotation.offset must contain finite numeric values".to_string(),
+                    annotation.span,
+                    self.file.clone(),
+                ));
+            }
+        }
+    }
+
+    fn validate_highlight_schedule(&mut self, entries: &[HighlightScheduleEntry]) {
+        for entry in entries {
+            if !entry.at_time.is_finite() || entry.at_time < 0.0 {
+                self.errors.add(DslError::new(
+                    ErrorCode::InvalidTimeValue,
+                    "highlight_schedule.at must be a finite time >= 0".to_string(),
+                    entry.span,
+                    self.file.clone(),
+                ));
+            }
+            if entry.highlight_token.trim().is_empty() {
+                self.errors.add(DslError::new(
+                    ErrorCode::MissingRequiredField,
+                    "highlight_schedule.token is required".to_string(),
+                    entry.span,
+                    self.file.clone(),
+                ));
+            }
+            if entry.entity_id.trim().is_empty() {
+                self.errors.add(DslError::new(
+                    ErrorCode::MissingRequiredField,
+                    "highlight_schedule.entity is required".to_string(),
+                    entry.span,
+                    self.file.clone(),
+                ));
+            }
+            if entry.color_index > 15 {
+                self.errors.add(DslError::new(
+                    ErrorCode::InvalidFieldType,
+                    "highlight_schedule.color_index must be in [0, 15]".to_string(),
+                    entry.span,
+                    self.file.clone(),
+                ));
+            }
+        }
+    }
+
     fn validate_domain(&mut self, domain: &DomainConstraint, span: SourceSpan, object_name: &str) {
         if domain.variables.is_empty() {
             self.errors.add(DslError::new(
@@ -649,8 +740,8 @@ impl SchemaValidator {
         }
     }
 
-    fn validate_math_expr(&mut self, expr: &MathExpression, span: SourceSpan, object_name: &str) {
-        match expr {
+    fn validate_math_expr(&mut self, expr: &AnnotatedExpr, span: SourceSpan, object_name: &str) {
+        match &expr.expr {
             MathExpression::FunctionCall(name, args) => {
                 if name.is_empty() {
                     self.errors.add(DslError::new(

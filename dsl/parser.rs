@@ -10,6 +10,7 @@ pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
     file: PathBuf,
+    node_id_counter: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +25,7 @@ impl Parser {
             tokens,
             position: 0,
             file,
+            node_id_counter: 0,
         }
     }
 
@@ -64,6 +66,21 @@ impl Parser {
         let trajectories = self.parse_trajectories()?;
 
         let timelines = self.parse_timelines()?;
+        let concept_ref = if self.check(TokenKind::ConceptRef) {
+            Some(self.parse_concept_ref()?)
+        } else {
+            None
+        };
+        let annotations = if self.check(TokenKind::Annotations) {
+            self.parse_annotations()?
+        } else {
+            Vec::new()
+        };
+        let highlight_schedule = if self.check(TokenKind::HighlightSchedule) {
+            self.parse_highlight_schedule()?
+        } else {
+            Vec::new()
+        };
 
         self.expect(TokenKind::Eof)?;
 
@@ -89,6 +106,9 @@ impl Parser {
             compound_motions,
             trajectories,
             timelines,
+            concept_ref,
+            annotations,
+            highlight_schedule,
             span,
         })
     }
@@ -126,6 +146,9 @@ impl Parser {
             compound_motions: Vec::new(),
             trajectories: Vec::new(),
             timelines: Vec::new(),
+            concept_ref: None,
+            annotations: Vec::new(),
+            highlight_schedule: Vec::new(),
             span,
         })
     }
@@ -582,6 +605,11 @@ impl Parser {
             }
             TokenKind::LeftBracket => self.parse_list_value(),
             TokenKind::Identifier(id) if !self.is_math_expression_starting_here() => {
+                if id == "true" || id == "false" {
+                    let val = id == "true";
+                    let span = self.advance().span;
+                    return Ok(AstValue::Boolean(val, span));
+                }
                 let val = id.clone();
                 let span = self.advance().span;
                 Ok(AstValue::Identifier(val, span))
@@ -694,11 +722,11 @@ impl Parser {
         })
     }
 
-    fn parse_math_expression(&mut self) -> DslResult<MathExpression> {
+    fn parse_math_expression(&mut self) -> DslResult<AnnotatedExpr> {
         self.parse_additive_expression()
     }
 
-    fn parse_additive_expression(&mut self) -> DslResult<MathExpression> {
+    fn parse_additive_expression(&mut self) -> DslResult<AnnotatedExpr> {
         let mut expr = self.parse_multiplicative_expression()?;
 
         loop {
@@ -711,9 +739,12 @@ impl Parser {
             };
 
             if let Some(op) = op {
-                self.advance();
+                let op_span = self.advance().span;
                 let rhs = self.parse_multiplicative_expression()?;
-                expr = MathExpression::BinaryOp(Box::new(expr), op, Box::new(rhs));
+                expr = self.annotate_expr(
+                    MathExpression::BinaryOp(Box::new(expr), op, Box::new(rhs)),
+                    op_span,
+                );
             } else {
                 break;
             }
@@ -722,7 +753,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_multiplicative_expression(&mut self) -> DslResult<MathExpression> {
+    fn parse_multiplicative_expression(&mut self) -> DslResult<AnnotatedExpr> {
         let mut expr = self.parse_power_expression()?;
 
         loop {
@@ -735,9 +766,12 @@ impl Parser {
             };
 
             if let Some(op) = op {
-                self.advance();
+                let op_span = self.advance().span;
                 let rhs = self.parse_power_expression()?;
-                expr = MathExpression::BinaryOp(Box::new(expr), op, Box::new(rhs));
+                expr = self.annotate_expr(
+                    MathExpression::BinaryOp(Box::new(expr), op, Box::new(rhs)),
+                    op_span,
+                );
             } else {
                 break;
             }
@@ -746,49 +780,48 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_power_expression(&mut self) -> DslResult<MathExpression> {
+    fn parse_power_expression(&mut self) -> DslResult<AnnotatedExpr> {
         let lhs = self.parse_unary_expression()?;
         if self.check_math_operator(MathOperator::Power) {
-            self.advance();
+            let op_span = self.advance().span;
             let rhs = self.parse_power_expression()?;
-            Ok(MathExpression::BinaryOp(
-                Box::new(lhs),
-                MathBinaryOperator::Power,
-                Box::new(rhs),
+            Ok(self.annotate_expr(
+                MathExpression::BinaryOp(Box::new(lhs), MathBinaryOperator::Power, Box::new(rhs)),
+                op_span,
             ))
         } else {
             Ok(lhs)
         }
     }
 
-    fn parse_unary_expression(&mut self) -> DslResult<MathExpression> {
+    fn parse_unary_expression(&mut self) -> DslResult<AnnotatedExpr> {
         if self.check_math_operator(MathOperator::Minus) {
-            self.advance();
+            let op_span = self.advance().span;
             let expr = self.parse_unary_expression()?;
-            return Ok(MathExpression::UnaryOp(
-                MathUnaryOperator::Negate,
-                Box::new(expr),
+            return Ok(self.annotate_expr(
+                MathExpression::UnaryOp(MathUnaryOperator::Negate, Box::new(expr)),
+                op_span,
             ));
         }
 
         if self.check_math_operator(MathOperator::Gradient) {
-            self.advance();
+            let op_span = self.advance().span;
             let expr = self.parse_unary_expression()?;
-            return Ok(MathExpression::UnaryOp(
-                MathUnaryOperator::Gradient,
-                Box::new(expr),
+            return Ok(self.annotate_expr(
+                MathExpression::UnaryOp(MathUnaryOperator::Gradient, Box::new(expr)),
+                op_span,
             ));
         }
 
         self.parse_primary_expression()
     }
 
-    fn parse_primary_expression(&mut self) -> DslResult<MathExpression> {
+    fn parse_primary_expression(&mut self) -> DslResult<AnnotatedExpr> {
         match &self.current().kind {
             TokenKind::Number(n) => {
                 let value = *n;
-                self.advance();
-                Ok(MathExpression::Number(value))
+                let span = self.advance().span;
+                Ok(self.annotate_expr(MathExpression::Number(value), span))
             }
             TokenKind::MathConstant(c) => {
                 let constant = match c {
@@ -797,8 +830,8 @@ impl Parser {
                     MathConstant::Imaginary => crate::ast::MathConstant::ImaginaryUnit,
                     MathConstant::Infinity => crate::ast::MathConstant::Infinity,
                 };
-                self.advance();
-                Ok(MathExpression::Constant(constant))
+                let span = self.advance().span;
+                Ok(self.annotate_expr(MathExpression::Constant(constant), span))
             }
             TokenKind::Identifier(_) | TokenKind::GreekLetter(_) => {
                 self.parse_identifier_expression()
@@ -822,7 +855,8 @@ impl Parser {
         }
     }
 
-    fn parse_identifier_expression(&mut self) -> DslResult<MathExpression> {
+    fn parse_identifier_expression(&mut self) -> DslResult<AnnotatedExpr> {
+        let start_span = self.current_span();
         let name = self.expect_identifier_or_greek()?;
 
         if self.check(TokenKind::LeftParen) {
@@ -836,14 +870,14 @@ impl Parser {
                 }
             }
             self.expect(TokenKind::RightParen)?;
-            Ok(MathExpression::FunctionCall(name, args))
+            Ok(self.annotate_expr(MathExpression::FunctionCall(name, args), start_span))
         } else {
-            Ok(MathExpression::Variable(name))
+            Ok(self.annotate_expr(MathExpression::Variable(name), start_span))
         }
     }
 
-    fn parse_derivative_expression(&mut self) -> DslResult<MathExpression> {
-        self.advance(); // derivative keyword
+    fn parse_derivative_expression(&mut self) -> DslResult<AnnotatedExpr> {
+        let start_span = self.advance().span; // derivative keyword
         self.expect(TokenKind::LeftParen)?;
         let expression = self.parse_math_expression()?;
         self.expect(TokenKind::Comma)?;
@@ -855,15 +889,18 @@ impl Parser {
         }
         self.expect(TokenKind::RightParen)?;
 
-        Ok(MathExpression::Derivative {
-            expression: Box::new(expression),
-            variable,
-            order,
-        })
+        Ok(self.annotate_expr(
+            MathExpression::Derivative {
+                expression: Box::new(expression),
+                variable,
+                order,
+            },
+            start_span,
+        ))
     }
 
-    fn parse_integral_expression(&mut self) -> DslResult<MathExpression> {
-        self.advance(); // integral keyword or ∫ symbol
+    fn parse_integral_expression(&mut self) -> DslResult<AnnotatedExpr> {
+        let start_span = self.advance().span; // integral keyword or ∫ symbol
         self.expect(TokenKind::LeftParen)?;
         let expression = self.parse_math_expression()?;
         self.expect(TokenKind::Comma)?;
@@ -885,11 +922,27 @@ impl Parser {
         };
 
         self.expect(TokenKind::RightParen)?;
-        Ok(MathExpression::Integral {
-            expression: Box::new(expression),
-            variable,
-            bounds,
-        })
+        Ok(self.annotate_expr(
+            MathExpression::Integral {
+                expression: Box::new(expression),
+                variable,
+                bounds,
+            },
+            start_span,
+        ))
+    }
+
+    fn annotate_expr(&mut self, expr: MathExpression, span: SourceSpan) -> AnnotatedExpr {
+        let node_id = format!(
+            "{}:{}:{}",
+            span.start_line, span.start_col, self.node_id_counter
+        );
+        self.node_id_counter += 1;
+        AnnotatedExpr {
+            node_id,
+            highlight_token: None,
+            expr,
+        }
     }
 
     fn expect_identifier_or_greek(&mut self) -> DslResult<String> {
@@ -1066,6 +1119,197 @@ impl Parser {
         Ok(AstEvent { fields, span })
     }
 
+    fn parse_concept_ref(&mut self) -> DslResult<ConceptAnnotation> {
+        self.expect(TokenKind::ConceptRef)?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut concept_id: Option<String> = None;
+        let mut section_id: Option<String> = None;
+        let mut step_index: Option<usize> = None;
+
+        while !self.check(TokenKind::RightBrace) {
+            let field_name = self.expect_identifier()?;
+            self.expect(TokenKind::Colon)?;
+            match field_name.as_str() {
+                "concept_id" => concept_id = Some(self.expect_string()?),
+                "section_id" => section_id = Some(self.expect_string()?),
+                "step_index" => step_index = Some(self.expect_number()? as usize),
+                _ => {
+                    return Err(self.error(
+                        ErrorCode::InvalidBlockStructure,
+                        format!("Unknown concept_ref field: '{}'", field_name),
+                    ))
+                }
+            }
+        }
+
+        self.expect(TokenKind::RightBrace)?;
+
+        Ok(ConceptAnnotation {
+            concept_id: concept_id.ok_or_else(|| {
+                self.error(
+                    ErrorCode::MissingRequiredField,
+                    "Missing concept_ref.concept_id",
+                )
+            })?,
+            section_id: section_id.ok_or_else(|| {
+                self.error(
+                    ErrorCode::MissingRequiredField,
+                    "Missing concept_ref.section_id",
+                )
+            })?,
+            step_index: step_index.ok_or_else(|| {
+                self.error(
+                    ErrorCode::MissingRequiredField,
+                    "Missing concept_ref.step_index",
+                )
+            })?,
+        })
+    }
+
+    fn parse_annotations(&mut self) -> DslResult<Vec<AnnotationNode>> {
+        self.expect(TokenKind::Annotations)?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut annotations = Vec::new();
+        while self.check(TokenKind::Annotation) {
+            annotations.push(self.parse_single_annotation()?);
+        }
+
+        self.expect(TokenKind::RightBrace)?;
+        Ok(annotations)
+    }
+
+    fn parse_single_annotation(&mut self) -> DslResult<AnnotationNode> {
+        let start_span = self.expect(TokenKind::Annotation)?.span;
+        let named_label = self.expect_string()?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut anchor_entity_id: Option<String> = None;
+        let mut position_offset = [0.0, 0.0, 0.0];
+        let mut label_text: Option<String> = None;
+        let mut equation_node_id: Option<String> = None;
+        let mut highlight_token: Option<String> = None;
+
+        while !self.check(TokenKind::RightBrace) {
+            let field_name = self.expect_annotation_field_name()?;
+            self.expect(TokenKind::Colon)?;
+            match field_name.as_str() {
+                "anchor" => anchor_entity_id = Some(self.expect_identifier()?),
+                "offset" => position_offset = self.parse_vector3_literal()?,
+                "label" => label_text = Some(self.expect_string()?),
+                "equation_node_id" => equation_node_id = Some(self.expect_string()?),
+                "highlight_token" => highlight_token = Some(self.expect_string()?),
+                _ => {
+                    return Err(self.error(
+                        ErrorCode::InvalidBlockStructure,
+                        format!("Unknown annotation field: '{}'", field_name),
+                    ))
+                }
+            }
+        }
+
+        let end_span = self.expect(TokenKind::RightBrace)?.span;
+
+        Ok(AnnotationNode {
+            label_text: label_text.unwrap_or(named_label),
+            anchor_entity_id: anchor_entity_id.ok_or_else(|| {
+                self.error(
+                    ErrorCode::MissingRequiredField,
+                    "Missing annotation.anchor field",
+                )
+            })?,
+            position_offset,
+            equation_node_id,
+            highlight_token,
+            span: self.span_between(start_span, end_span),
+        })
+    }
+
+    fn parse_highlight_schedule(&mut self) -> DslResult<Vec<HighlightScheduleEntry>> {
+        self.expect(TokenKind::HighlightSchedule)?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut entries = Vec::new();
+        while self.check(TokenKind::At) {
+            entries.push(self.parse_schedule_entry()?);
+        }
+
+        self.expect(TokenKind::RightBrace)?;
+        Ok(entries)
+    }
+
+    fn parse_schedule_entry(&mut self) -> DslResult<HighlightScheduleEntry> {
+        let start_span = self.expect(TokenKind::At)?.span;
+        let at_time = self.expect_number()?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut highlight_token: Option<String> = None;
+        let mut entity_id: Option<String> = None;
+        let mut color_index: Option<u8> = None;
+
+        while !self.check(TokenKind::RightBrace) {
+            let field_name = self.expect_identifier()?;
+            self.expect(TokenKind::Colon)?;
+            match field_name.as_str() {
+                "token" => highlight_token = Some(self.expect_string()?),
+                "entity" => entity_id = Some(self.expect_identifier()?),
+                "color_index" => {
+                    let value = self.expect_number()? as i64;
+                    if !(0..=255).contains(&value) {
+                        return Err(self.error(
+                            ErrorCode::InvalidFieldType,
+                            "highlight_schedule color_index must be in [0,255]",
+                        ));
+                    }
+                    color_index = Some(value as u8);
+                }
+                _ => {
+                    return Err(self.error(
+                        ErrorCode::InvalidBlockStructure,
+                        format!("Unknown highlight_schedule entry field: '{}'", field_name),
+                    ))
+                }
+            }
+        }
+
+        let end_span = self.expect(TokenKind::RightBrace)?.span;
+
+        Ok(HighlightScheduleEntry {
+            at_time,
+            highlight_token: highlight_token.ok_or_else(|| {
+                self.error(
+                    ErrorCode::MissingRequiredField,
+                    "Missing highlight_schedule token field",
+                )
+            })?,
+            entity_id: entity_id.ok_or_else(|| {
+                self.error(
+                    ErrorCode::MissingRequiredField,
+                    "Missing highlight_schedule entity field",
+                )
+            })?,
+            color_index: color_index.ok_or_else(|| {
+                self.error(
+                    ErrorCode::MissingRequiredField,
+                    "Missing highlight_schedule color_index field",
+                )
+            })?,
+            span: self.span_between(start_span, end_span),
+        })
+    }
+
+    fn parse_vector3_literal(&mut self) -> DslResult<[f64; 3]> {
+        self.expect(TokenKind::LeftBracket)?;
+        let x = self.expect_number()?;
+        self.expect(TokenKind::Comma)?;
+        let y = self.expect_number()?;
+        self.expect(TokenKind::Comma)?;
+        let z = self.expect_number()?;
+        self.expect(TokenKind::RightBracket)?;
+        Ok([x, y, z])
+    }
+
     // Helper methods
 
     fn current(&self) -> &Token {
@@ -1110,7 +1354,21 @@ impl Parser {
                 self.advance();
                 Ok(val)
             }
+            TokenKind::AnchorKw => {
+                self.advance();
+                Ok("anchor".to_string())
+            }
             _ => Err(self.error(ErrorCode::ExpectedToken, "Expected identifier")),
+        }
+    }
+
+    fn expect_annotation_field_name(&mut self) -> DslResult<String> {
+        match &self.current().kind {
+            TokenKind::AnchorKw => {
+                self.advance();
+                Ok("anchor".to_string())
+            }
+            _ => self.expect_identifier(),
         }
     }
 
@@ -1175,7 +1433,7 @@ mod tests {
         parser.parse()
     }
 
-    fn parse_expr(source: &str) -> DslResult<MathExpression> {
+    fn parse_expr(source: &str) -> DslResult<AnnotatedExpr> {
         let mut lexer = Lexer::new(source.to_string(), PathBuf::from("expr.dsl"));
         let tokens = lexer.tokenize()?;
         let mut parser = Parser::new(tokens, PathBuf::from("expr.dsl"));
@@ -1233,10 +1491,10 @@ entity cube1 {
     #[test]
     fn test_expression_precedence() {
         let expr = parse_expr("1 + 2 * 3").unwrap();
-        match expr {
+        match expr.expr {
             MathExpression::BinaryOp(_, MathBinaryOperator::Add, rhs) => {
                 assert!(matches!(
-                    *rhs,
+                    rhs.expr,
                     MathExpression::BinaryOp(_, MathBinaryOperator::Multiply, _)
                 ));
             }
@@ -1247,7 +1505,7 @@ entity cube1 {
     #[test]
     fn test_function_call_expression() {
         let expr = parse_expr("sin(x)").unwrap();
-        match expr {
+        match expr.expr {
             MathExpression::FunctionCall(name, args) => {
                 assert_eq!(name, "sin");
                 assert_eq!(args.len(), 1);
@@ -1259,13 +1517,13 @@ entity cube1 {
     #[test]
     fn test_derivative_expression() {
         let expr = parse_expr("derivative(x^2, x)").unwrap();
-        assert!(matches!(expr, MathExpression::Derivative { .. }));
+        assert!(matches!(expr.expr, MathExpression::Derivative { .. }));
     }
 
     #[test]
     fn test_integral_expression_with_bounds() {
         let expr = parse_expr("integral(x^2, x, 0, 1)").unwrap();
-        match expr {
+        match expr.expr {
             MathExpression::Integral { bounds, .. } => assert!(bounds.is_some()),
             _ => panic!("expected integral expression"),
         }
