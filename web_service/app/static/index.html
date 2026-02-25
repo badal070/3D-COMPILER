@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>edu3d Visualizer</title>
+  <style>
+    body, html { height: 100%; margin: 0; font-family: Arial, sans-serif; }
+    .container { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    .sidebar { background: #f5f5f5; padding: 12px; box-sizing: border-box; border-right: 1px solid #ddd; }
+    .main { position: relative; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    .panel { margin-bottom: 12px; }
+    button { display: inline-block; padding: 8px 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <h3>Controls</h3>
+      <div class="panel">
+        <button id="connect">Connect WS</button>
+        <button id="disconnect">Disconnect</button>
+      </div>
+      <div class="panel">
+        <h4>Snapshot</h4>
+        <pre id="snapshot" style="white-space: pre-wrap; background:#fff; padding:8px; border:1px solid #ddd; height:300px; overflow:auto;"></pre>
+      </div>
+    </div>
+    <div class="main">
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script>
+  // Simple Three.js scene that updates an object from snapshot messages
+  let scene, camera, renderer, cube;
+  function init() {
+    const canvas = document.getElementById('canvas');
+    renderer = new THREE.WebGLRenderer({ canvas });
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    renderer.setSize(window.innerWidth - 320, window.innerHeight);
+
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, (window.innerWidth - 320)/window.innerHeight, 0.1, 1000);
+    camera.position.z = 5;
+
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(5, 10, 7.5);
+    scene.add(light);
+
+    const geometry = new THREE.BoxGeometry(1,1,1);
+    const material = new THREE.MeshStandardMaterial({ color: 0x0077ff });
+    cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    animate();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+  }
+
+  let ws;
+  document.getElementById('connect').addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+    ws = new WebSocket('ws://' + window.location.host + '/ws');
+    ws.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      document.getElementById('snapshot').textContent = JSON.stringify(data, null, 2);
+      const pos = data.objects[0].position;
+      cube.position.set(pos[0], pos[1], pos[2]);
+    };
+    ws.onopen = () => console.log('ws open');
+    ws.onclose = () => console.log('ws closed');
+  });
+  document.getElementById('disconnect').addEventListener('click', () => {
+    if (ws) ws.close();
+  });
+
+  window.addEventListener('resize', () => {
+    renderer.setSize(window.innerWidth - 320, window.innerHeight);
+    camera.aspect = (window.innerWidth - 320)/window.innerHeight;
+    camera.updateProjectionMatrix();
+  });
+
+  init();
+  </script>
+</body>
+</html>
