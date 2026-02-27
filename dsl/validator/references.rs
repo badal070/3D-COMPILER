@@ -87,7 +87,18 @@ impl ReferenceValidator {
                     // Common entity reference field names
                     if matches!(
                         field.name.as_str(),
-                        "driver" | "driven" | "parent" | "child" | "target" | "source"
+                        "driver"
+                            | "driven"
+                            | "parent"
+                            | "child"
+                            | "target"
+                            | "source"
+                            | "tool"
+                            | "entity_a"
+                            | "entity_b"
+                            | "sketch_ref"
+                            | "profile"
+                            | "path"
                     ) {
                         if !entities.contains_key(ref_name) {
                             self.errors.add(
@@ -678,6 +689,9 @@ mod tests {
                 ir_version: "0.1.0".to_string(),
                 unit_system: "SI".to_string(),
                 domain: None,
+                precision: None,
+                author: None,
+                created: None,
                 span: SourceSpan::single_point(1, 1, 0),
             },
             library_imports: AstLibraryImports {

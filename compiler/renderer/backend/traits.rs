@@ -47,6 +47,16 @@ pub trait RenderBackend: Send {
         self.set_highlighted(id, highlighted)
     }
 
+    /// Create a standalone annotation overlay.
+    fn create_annotation(&mut self, _annotation: RenderAnnotation) -> RenderResult<u64> {
+        Ok(0)
+    }
+
+    /// Update an existing annotation overlay.
+    fn update_annotation(&mut self, _id: u64, _annotation: RenderAnnotation) -> RenderResult<()> {
+        Ok(())
+    }
+
     /// Set or update a label annotation anchored to an object.
     fn set_annotation(
         &mut self,
@@ -66,6 +76,25 @@ pub trait RenderBackend: Send {
 
     /// Get backend name for debugging
     fn name(&self) -> &str;
+}
+
+#[derive(Debug, Clone)]
+pub enum RenderAnnotation {
+    LinearDimension {
+        start: [f32; 3],
+        end: [f32; 3],
+        label: String,
+    },
+    AngleDimension {
+        vertex: [f32; 3],
+        ray1: [f32; 3],
+        ray2: [f32; 3],
+        label: String,
+    },
+    Note {
+        position: [f32; 3],
+        text: String,
+    },
 }
 
 /// Geometry data for rendering

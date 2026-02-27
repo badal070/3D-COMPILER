@@ -1,4 +1,4 @@
-#!/home/badal/projects/edu3d/web_service/app/.venv/bin/python3.12
+#!/home/badal/projects/edu3d/web_service/app/.venv/bin/python
 import sys
 from uvicorn.main import main
 if __name__ == '__main__':

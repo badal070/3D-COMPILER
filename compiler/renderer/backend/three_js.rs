@@ -5,7 +5,7 @@
 //! This backend communicates with JavaScript Three.js via WebAssembly.
 
 use crate::renderer::{
-    backend::{RenderBackend, RenderGeometry, RenderMaterial, RenderTransform},
+    backend::{RenderAnnotation, RenderBackend, RenderGeometry, RenderMaterial, RenderTransform},
     error::{RenderError, RenderResult},
 };
 use std::collections::HashMap;
@@ -18,6 +18,8 @@ use wasm_bindgen::prelude::*;
 /// Bridges Rust render commands to JavaScript Three.js library
 pub struct ThreeJsBackend {
     objects: HashMap<u64, ThreeJsObject>,
+    annotations: HashMap<u64, RenderAnnotation>,
+    next_annotation_id: u64,
     #[cfg(target_arch = "wasm32")]
     scene_handle: JsValue,
 }
@@ -36,6 +38,8 @@ impl ThreeJsBackend {
         let scene_handle = Self::init_scene()?;
         Ok(Self {
             objects: HashMap::new(),
+            annotations: HashMap::new(),
+            next_annotation_id: 1,
             scene_handle,
         })
     }
@@ -44,6 +48,8 @@ impl ThreeJsBackend {
     pub fn new() -> RenderResult<Self> {
         Ok(Self {
             objects: HashMap::new(),
+            annotations: HashMap::new(),
+            next_annotation_id: 1,
         })
     }
 
@@ -448,6 +454,120 @@ impl RenderBackend for ThreeJsBackend {
 
         #[cfg(not(target_arch = "wasm32"))]
         self.log_stub(&format!("set_annotation: id={anchor_id}, active={is_active}"));
+
+        Ok(())
+    }
+
+    fn create_annotation(&mut self, annotation: RenderAnnotation) -> RenderResult<u64> {
+        let id = self.next_annotation_id;
+        self.next_annotation_id += 1;
+        self.annotations.insert(id, annotation.clone());
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let js = match annotation {
+                RenderAnnotation::LinearDimension { start, end, label } => format!(
+                    "window.createRenderAnnotation && window.createRenderAnnotation({}, 'linear', {}, {}, {}, {}, {}, {}, '{}')",
+                    id,
+                    start[0],
+                    start[1],
+                    start[2],
+                    end[0],
+                    end[1],
+                    end[2],
+                    label.replace('\'', "\\'")
+                ),
+                RenderAnnotation::AngleDimension {
+                    vertex,
+                    ray1,
+                    ray2,
+                    label,
+                } => format!(
+                    "window.createRenderAnnotation && window.createRenderAnnotation({}, 'angle', {}, {}, {}, {}, {}, {}, '{}', {}, {}, {})",
+                    id,
+                    vertex[0],
+                    vertex[1],
+                    vertex[2],
+                    ray1[0],
+                    ray1[1],
+                    ray1[2],
+                    label.replace('\'', "\\'"),
+                    ray2[0],
+                    ray2[1],
+                    ray2[2],
+                ),
+                RenderAnnotation::Note { position, text } => format!(
+                    "window.createRenderAnnotation && window.createRenderAnnotation({}, 'note', {}, {}, {}, 0, 0, 0, '{}')",
+                    id,
+                    position[0],
+                    position[1],
+                    position[2],
+                    text.replace('\'', "\\'")
+                ),
+            };
+            js_sys::eval(&js).map_err(|_| RenderError::UpdateFailed)?;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        self.log_stub(&format!("create_annotation: id={id}"));
+
+        Ok(id)
+    }
+
+    fn update_annotation(&mut self, id: u64, annotation: RenderAnnotation) -> RenderResult<()> {
+        if !self.annotations.contains_key(&id) {
+            return Err(RenderError::ObjectNotFound(id));
+        }
+
+        self.annotations.insert(id, annotation.clone());
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let js = match annotation {
+                RenderAnnotation::LinearDimension { start, end, label } => format!(
+                    "window.updateRenderAnnotation && window.updateRenderAnnotation({}, 'linear', {}, {}, {}, {}, {}, {}, '{}')",
+                    id,
+                    start[0],
+                    start[1],
+                    start[2],
+                    end[0],
+                    end[1],
+                    end[2],
+                    label.replace('\'', "\\'")
+                ),
+                RenderAnnotation::AngleDimension {
+                    vertex,
+                    ray1,
+                    ray2,
+                    label,
+                } => format!(
+                    "window.updateRenderAnnotation && window.updateRenderAnnotation({}, 'angle', {}, {}, {}, {}, {}, {}, '{}', {}, {}, {})",
+                    id,
+                    vertex[0],
+                    vertex[1],
+                    vertex[2],
+                    ray1[0],
+                    ray1[1],
+                    ray1[2],
+                    label.replace('\'', "\\'"),
+                    ray2[0],
+                    ray2[1],
+                    ray2[2],
+                ),
+                RenderAnnotation::Note { position, text } => format!(
+                    "window.updateRenderAnnotation && window.updateRenderAnnotation({}, 'note', {}, {}, {}, 0, 0, 0, '{}')",
+                    id,
+                    position[0],
+                    position[1],
+                    position[2],
+                    text.replace('\'', "\\'")
+                ),
+            };
+            js_sys::eval(&js).map_err(|_| RenderError::UpdateFailed)?;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        self.log_stub(&format!("update_annotation: id={id}"));
 
         Ok(())
     }

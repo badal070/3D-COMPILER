@@ -57,6 +57,9 @@ pub struct AstScene {
     pub ir_version: String,
     pub unit_system: String,
     pub domain: Option<String>,
+    pub precision: Option<f64>,
+    pub author: Option<String>,
+    pub created: Option<String>,
     pub span: SourceSpan,
 }
 

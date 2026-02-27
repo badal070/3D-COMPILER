@@ -9,7 +9,7 @@ pub mod babylon;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod three_js;
 
-pub use traits::{RenderBackend, RenderGeometry, RenderMaterial, RenderTransform};
+pub use traits::{RenderAnnotation, RenderBackend, RenderGeometry, RenderMaterial, RenderTransform};
 
 #[cfg(test)]
 pub use traits::MockBackend;

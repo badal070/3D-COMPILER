@@ -131,6 +131,9 @@ impl Parser {
                 ir_version: "0.1.0".to_string(),
                 unit_system: "SI".to_string(),
                 domain: Some("math".to_string()),
+                precision: None,
+                author: None,
+                created: None,
                 span,
             },
             library_imports: AstLibraryImports {
@@ -333,9 +336,23 @@ impl Parser {
         let mut ir_version = None;
         let mut unit_system = None;
         let mut domain = None;
+        let mut precision = None;
+        let mut author = None;
+        let mut created = None;
 
         while !self.check(TokenKind::RightBrace) {
-            let field_name = self.expect_identifier()?;
+            let field_name = match &self.current().kind {
+                TokenKind::Identifier(id) => {
+                    let value = id.clone();
+                    self.advance();
+                    value
+                }
+                TokenKind::MathKeyword(MathKeyword::Domain) => {
+                    self.advance();
+                    "domain".to_string()
+                }
+                _ => self.expect_identifier()?,
+            };
             self.expect(TokenKind::Colon)?;
 
             match field_name.as_str() {
@@ -368,7 +385,17 @@ impl Parser {
                             self.error(ErrorCode::DuplicateField, "Duplicate 'unit_system' field")
                         );
                     }
-                    unit_system = Some(self.expect_string()?);
+                    let value = match &self.current().kind {
+                        TokenKind::Identifier(_) => self.expect_identifier()?,
+                        TokenKind::String(_) => self.expect_string()?,
+                        _ => {
+                            return Err(self.error(
+                                ErrorCode::InvalidFieldType,
+                                "Scene 'unit_system' must be an identifier or string",
+                            ))
+                        }
+                    };
+                    unit_system = Some(value);
                 }
                 "domain" => {
                     if domain.is_some() {
@@ -387,6 +414,28 @@ impl Parser {
                         }
                     };
                     domain = Some(value);
+                }
+                "precision" => {
+                    if precision.is_some() {
+                        return Err(
+                            self.error(ErrorCode::DuplicateField, "Duplicate 'precision' field")
+                        );
+                    }
+                    precision = Some(self.expect_number()?);
+                }
+                "author" => {
+                    if author.is_some() {
+                        return Err(self.error(ErrorCode::DuplicateField, "Duplicate 'author' field"));
+                    }
+                    author = Some(self.expect_string()?);
+                }
+                "created" => {
+                    if created.is_some() {
+                        return Err(
+                            self.error(ErrorCode::DuplicateField, "Duplicate 'created' field")
+                        );
+                    }
+                    created = Some(self.expect_string()?);
                 }
                 _ => {
                     return Err(self.error(
@@ -425,6 +474,9 @@ impl Parser {
             ir_version,
             unit_system,
             domain,
+            precision,
+            author,
+            created,
             span,
         })
     }

@@ -16,6 +16,7 @@ pub struct IrScene {
     pub entities: Vec<IrEntity>,
     pub constraints: Vec<IrConstraint>,
     pub motions: Vec<IrMotion>,
+    pub modeling_tree: Option<Vec<IrFeature>>,
     pub math_entities: Vec<IrMathEntity>,
     pub compound_motions: Vec<IrCompoundMotion>,
     pub timelines: Vec<IrTimeline>,
@@ -30,6 +31,10 @@ pub struct IrMetadata {
     pub version: i64,
     pub ir_version: String,
     pub unit_system: String,
+    pub domain: Option<String>,
+    pub precision: Option<f64>,
+    pub author: Option<String>,
+    pub created: Option<String>,
     pub libraries: Vec<String>,
 }
 
@@ -104,6 +109,14 @@ pub struct IrMotion {
     pub id: String,
     pub motion_type: String,
     pub target_entity: String,
+    pub parameters: HashMap<String, IrValue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct IrFeature {
+    pub id: String,
+    pub operation_type: String,
+    pub inputs: Vec<String>,
     pub parameters: HashMap<String, IrValue>,
 }
 
@@ -217,6 +230,7 @@ pub struct IrLowering;
 impl IrLowering {
     pub fn lower(ast: AstFile) -> DslResult<IrScene> {
         let metadata = Self::lower_metadata(&ast.scene, &ast.library_imports);
+        let modeling_tree = Self::lower_modeling_tree(&ast)?;
         let entities = Self::lower_entities(ast.entities)?;
         let constraints = Self::lower_constraints(ast.constraints)?;
         let motions = Self::lower_motions(ast.motions)?;
@@ -232,6 +246,7 @@ impl IrLowering {
             entities,
             constraints,
             motions,
+            modeling_tree,
             math_entities,
             compound_motions,
             timelines,
@@ -247,6 +262,10 @@ impl IrLowering {
             version: scene.version,
             ir_version: scene.ir_version.clone(),
             unit_system: scene.unit_system.clone(),
+            domain: scene.domain.clone(),
+            precision: scene.precision,
+            author: scene.author.clone(),
+            created: scene.created.clone(),
             libraries: imports
                 .imports
                 .iter()
@@ -348,6 +367,91 @@ impl IrLowering {
                 })
             })
             .collect()
+    }
+
+    fn lower_modeling_tree(ast: &AstFile) -> DslResult<Option<Vec<IrFeature>>> {
+        if ast.scene.domain.as_deref() != Some("modeling") {
+            return Ok(None);
+        }
+
+        let mut features = Vec::new();
+        for entity in &ast.entities {
+            let mut feature_component: Option<&AstComponent> = None;
+            for component in &entity.components {
+                if matches!(
+                    component.name.as_str(),
+                    "boolean_op"
+                        | "sketch"
+                        | "extrude"
+                        | "revolve"
+                        | "loft"
+                        | "sweep"
+                        | "shell"
+                        | "chamfer"
+                        | "fillet"
+                        | "thread"
+                        | "annotation"
+                ) {
+                    feature_component = Some(component);
+                    break;
+                }
+            }
+
+            let operation_type = feature_component
+                .map(|component| {
+                    if component.name == "boolean_op" {
+                        component
+                            .get_field("operation")
+                            .and_then(|field| field.value.as_identifier())
+                            .unwrap_or("boolean_op")
+                            .to_string()
+                    } else {
+                        component.name.clone()
+                    }
+                })
+                .unwrap_or_else(|| entity.kind.clone());
+
+            let source_component = feature_component.unwrap_or_else(|| {
+                entity
+                    .components
+                    .first()
+                    .expect("entities must contain at least one component by syntax validation")
+            });
+
+            let mut parameters = HashMap::new();
+            let mut inputs = Vec::new();
+            for field in &source_component.fields {
+                if matches!(
+                    field.name.as_str(),
+                    "target"
+                        | "tool"
+                        | "sketch_ref"
+                        | "profile"
+                        | "path"
+                        | "face"
+                        | "entity_a"
+                        | "entity_b"
+                ) {
+                    if let Some(id) = field.value.as_identifier() {
+                        inputs.push(id.to_string());
+                    }
+                }
+                parameters.insert(field.name.clone(), Self::lower_value(field.value.clone())?);
+            }
+
+            features.push(IrFeature {
+                id: entity.name.clone(),
+                operation_type,
+                inputs,
+                parameters,
+            });
+        }
+
+        if features.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(features))
+        }
     }
 
     fn lower_compound_motions(
@@ -1152,6 +1256,9 @@ mod tests {
                 ir_version: "0.1.0".to_string(),
                 unit_system: "SI".to_string(),
                 domain: Some("math".to_string()),
+                precision: None,
+                author: None,
+                created: None,
                 span: s,
             },
             library_imports: AstLibraryImports {

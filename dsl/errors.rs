@@ -81,6 +81,7 @@ pub enum ErrorCode {
 
     // Unit validation errors (E400-E499)
     InvalidVectorLength,
+    PrecisionUnderspecification,
     InvalidMassValue,
     InvalidRotationUnit,
     NonNormalizedAxis,
@@ -92,6 +93,13 @@ pub enum ErrorCode {
     LibraryVersionMismatch,
     InvalidLibraryImport,
     UnknownLibraryConstruct,
+
+    // Modeling errors (E1000-E1099)
+    InvalidBooleanOperation,
+    SketchNotClosed,
+    ConstraintConflictDetected,
+    DimensionBelowPrecisionThreshold,
+    FeatureDependsOnDeletedGeometry,
 }
 
 impl ErrorCode {
@@ -137,17 +145,25 @@ impl ErrorCode {
 
             // Unit validation
             ErrorCode::InvalidVectorLength => 400,
-            ErrorCode::InvalidMassValue => 401,
-            ErrorCode::InvalidRotationUnit => 402,
-            ErrorCode::NonNormalizedAxis => 403,
-            ErrorCode::InvalidTimeValue => 404,
-            ErrorCode::InvalidDurationValue => 405,
+            ErrorCode::PrecisionUnderspecification => 401,
+            ErrorCode::InvalidMassValue => 402,
+            ErrorCode::InvalidRotationUnit => 403,
+            ErrorCode::NonNormalizedAxis => 404,
+            ErrorCode::InvalidTimeValue => 405,
+            ErrorCode::InvalidDurationValue => 406,
 
             // Library compatibility
             ErrorCode::UndefinedLibrary => 500,
             ErrorCode::LibraryVersionMismatch => 501,
             ErrorCode::InvalidLibraryImport => 502,
             ErrorCode::UnknownLibraryConstruct => 503,
+
+            // Modeling
+            ErrorCode::InvalidBooleanOperation => 1001,
+            ErrorCode::SketchNotClosed => 1002,
+            ErrorCode::ConstraintConflictDetected => 1003,
+            ErrorCode::DimensionBelowPrecisionThreshold => 1004,
+            ErrorCode::FeatureDependsOnDeletedGeometry => 1005,
         }
     }
 
@@ -159,6 +175,7 @@ impl ErrorCode {
             300..=399 => "Reference Error",
             400..=499 => "Unit Validation Error",
             500..=599 => "Library Compatibility Error",
+            1000..=1099 => "Modeling Error",
             _ => "Unknown Error",
         }
     }
@@ -307,7 +324,9 @@ mod tests {
         assert_eq!(ErrorCode::UnknownComponentType.code(), 200);
         assert_eq!(ErrorCode::UndefinedEntity.code(), 300);
         assert_eq!(ErrorCode::InvalidVectorLength.code(), 400);
+        assert_eq!(ErrorCode::PrecisionUnderspecification.code(), 401);
         assert_eq!(ErrorCode::UndefinedLibrary.code(), 500);
+        assert_eq!(ErrorCode::InvalidBooleanOperation.code(), 1001);
     }
 
     #[test]
@@ -323,6 +342,10 @@ mod tests {
         assert_eq!(
             ErrorCode::UndefinedLibrary.category(),
             "Library Compatibility Error"
+        );
+        assert_eq!(
+            ErrorCode::InvalidBooleanOperation.category(),
+            "Modeling Error"
         );
     }
 

@@ -4,7 +4,7 @@
 //! Uses wgpu for cross-platform GPU rendering.
 
 use crate::renderer::{
-    backend::{RenderBackend, RenderGeometry, RenderMaterial, RenderTransform},
+    backend::{RenderAnnotation, RenderBackend, RenderGeometry, RenderMaterial, RenderTransform},
     error::{RenderError, RenderResult},
 };
 use std::collections::HashMap;
@@ -281,6 +281,16 @@ impl RenderBackend for NativeBackend {
         } else {
             Err(RenderError::ObjectNotFound(anchor_id))
         }
+    }
+
+    fn create_annotation(&mut self, annotation: RenderAnnotation) -> RenderResult<u64> {
+        self.log_debug(&format!("create_annotation: {:?}", annotation));
+        Ok(self.objects.len() as u64 + 1)
+    }
+
+    fn update_annotation(&mut self, id: u64, annotation: RenderAnnotation) -> RenderResult<()> {
+        self.log_debug(&format!("update_annotation {}: {:?}", id, annotation));
+        Ok(())
     }
 
     fn remove_object(&mut self, id: u64) -> RenderResult<()> {

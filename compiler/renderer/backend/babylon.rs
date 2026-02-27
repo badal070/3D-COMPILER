@@ -5,7 +5,7 @@
 //! Note: Physics here is VISUAL ONLY - the real physics happens in the runtime.
 
 use crate::renderer::{
-    backend::{RenderBackend, RenderGeometry, RenderMaterial, RenderTransform},
+    backend::{RenderAnnotation, RenderBackend, RenderGeometry, RenderMaterial, RenderTransform},
     error::{RenderError, RenderResult},
 };
 use std::collections::HashMap;
@@ -527,6 +527,18 @@ impl RenderBackend for BabylonBackend {
         #[cfg(not(target_arch = "wasm32"))]
         self.log_stub(&format!("set_annotation: id={anchor_id}, active={is_active}"));
 
+        Ok(())
+    }
+
+    fn create_annotation(&mut self, annotation: RenderAnnotation) -> RenderResult<u64> {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.log_stub(&format!("create_annotation: {:?}", annotation));
+        Ok(self.objects.len() as u64 + 1)
+    }
+
+    fn update_annotation(&mut self, id: u64, annotation: RenderAnnotation) -> RenderResult<()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.log_stub(&format!("update_annotation {id}: {:?}", annotation));
         Ok(())
     }
 

@@ -68,6 +68,46 @@ impl SyntaxValidator {
                 .with_help("Valid unit systems: SI, Imperial".to_string()),
             );
         }
+
+        if let Some(precision) = scene.precision {
+            if !precision.is_finite() || precision <= 0.0 {
+                self.errors.add(
+                    DslError::new(
+                        ErrorCode::InvalidFieldType,
+                        format!(
+                            "Scene precision must be a finite positive number, found {}",
+                            precision
+                        ),
+                        scene.span,
+                        self.file.clone(),
+                    )
+                    .with_help("Set precision to a small positive value (e.g. 0.01)".to_string()),
+                );
+            }
+        }
+
+        if let Some(domain) = scene.domain.as_deref() {
+            let valid_domains = [
+                "physics",
+                "chemistry",
+                "mathematics",
+                "robotics",
+                "modeling",
+                "general",
+                "math",
+            ];
+            if !valid_domains.contains(&domain) {
+                self.errors.add(
+                    DslError::new(
+                        ErrorCode::InvalidMathDomain,
+                        format!("Unknown scene domain '{}'", domain),
+                        scene.span,
+                        self.file.clone(),
+                    )
+                    .with_help(format!("Valid domains: {}", valid_domains.join(", "))),
+                );
+            }
+        }
     }
 
     fn validate_library_imports(&mut self, imports: &AstLibraryImports) {

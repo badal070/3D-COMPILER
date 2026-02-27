@@ -66,6 +66,7 @@ pub mod parser;
 pub mod validator {
     pub mod compound_motion;
     pub mod field;
+    pub mod geometry;
     pub mod library;
     pub mod material;
     pub mod math_semantic;
@@ -83,6 +84,7 @@ use crate::lower_to_ir::{IrLowering, IrScene};
 use crate::parser::Parser;
 use crate::validator::compound_motion::CompoundMotionValidator;
 use crate::validator::field::FieldValidator;
+use crate::validator::geometry::GeometryValidator;
 use crate::validator::library::LibraryValidator;
 use crate::validator::material::MaterialValidator;
 use crate::validator::math_semantic::MathSemanticValidator;
@@ -164,25 +166,32 @@ impl Compiler {
             )]
         })?;
 
-        UnitValidator::new(file.clone(), unit_system).validate(ast)?;
+        UnitValidator::new(file.clone(), unit_system, ast.scene.precision).validate(ast)?;
 
         // Pass 5: Library compatibility
         LibraryValidator::new(file.clone()).validate(ast)?;
 
-        // Pass 6: Material validation (NEW)
-        let domain = "physics"; // This should be extracted from scene or config
-        MaterialValidator::new(file.clone(), domain.to_string()).validate(ast)?;
+        // Pass 6: Geometric integrity (NEW)
+        GeometryValidator::new(file.clone()).validate(ast)?;
 
-        // Pass 7: Field validation (NEW)
+        // Pass 7: Material validation (NEW)
+        let domain = ast
+            .scene
+            .domain
+            .clone()
+            .unwrap_or_else(|| "general".to_string());
+        MaterialValidator::new(file.clone(), domain).validate(ast)?;
+
+        // Pass 8: Field validation (NEW)
         FieldValidator::new(file.clone()).validate(ast)?;
 
-        // Pass 8: Math semantic validation (NEW)
+        // Pass 9: Math semantic validation (NEW)
         MathSemanticValidator::new(file.clone()).validate(ast)?;
 
-        // Pass 9: Compound motion validation (NEW)
+        // Pass 10: Compound motion validation (NEW)
         CompoundMotionValidator::new(file.clone()).validate(ast)?;
 
-        // Pass 10: Trajectory validation (NEW)
+        // Pass 11: Trajectory validation (NEW)
         TrajectoryValidator::new(file.clone()).validate(ast)?;
 
         Ok(())

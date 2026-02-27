@@ -1,80 +1,102 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script builds the Rust `dsl-compiler` (release) and then starts the
-# web application using a Python virtual environment inside `web_service/app`.
-# Place this script in the repo `scripts/` folder and run it from the repo root:
+# Fresh launcher for edu3d modeling service.
+# - Builds dsl-compiler (release)
+# - Creates/uses isolated venv under web_service/.venv
+# - Installs web_service/requirements.txt
+# - Starts uvicorn using package import path (app.main:app)
+#
+# Usage:
 #   ./scripts/run_with_compiler.sh
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DSL_DIR="$REPO_ROOT/dsl"
-WEB_DIR="$REPO_ROOT/web_service/app"
+WEB_ROOT="$REPO_ROOT/web_service"
+WEB_APP_DIR="$WEB_ROOT/app"
+VENV_DIR="$WEB_ROOT/.venv"
+LEGACY_VENV_DIR="$WEB_APP_DIR/.venv"
+LOG_DIR="$REPO_ROOT/logs"
+BUILD_LOG="$LOG_DIR/compiler-build.log"
 
-FORCE_FALLBACK=0
-if [ "${1:-}" = "--force-fallback" ]; then
-  FORCE_FALLBACK=1
-fi
+PY_BIN="${PY_BIN:-python3}"
+HOST="${HOST:-127.0.0.1}"
+PORT="${PORT:-8000}"
 
 echo "[run_with_compiler] repo root: $REPO_ROOT"
 
-if [ ! -d "$DSL_DIR" ]; then
-  echo "DSL directory not found: $DSL_DIR" >&2
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "[run_with_compiler] cargo not found in PATH" >&2
   exit 1
 fi
 
-cd "$DSL_DIR"
+if ! command -v "$PY_BIN" >/dev/null 2>&1; then
+  echo "[run_with_compiler] python executable not found: $PY_BIN" >&2
+  exit 1
+fi
+
+if [ ! -d "$WEB_ROOT" ] || [ ! -d "$WEB_APP_DIR" ]; then
+  echo "[run_with_compiler] web_service/app not found under $REPO_ROOT" >&2
+  exit 1
+fi
+
+if [ -d "$LEGACY_VENV_DIR" ]; then
+  VENV_DIR="$LEGACY_VENV_DIR"
+fi
+
+mkdir -p "$LOG_DIR"
+
 echo "[run_with_compiler] Building dsl-compiler (release)..."
-mkdir -p "$REPO_ROOT/logs"
-BUILD_LOG="$REPO_ROOT/logs/compiler-build.log"
 echo "[run_with_compiler] Logging build output to $BUILD_LOG"
-if ! cargo build --release > "$BUILD_LOG" 2>&1; then
-  echo "[run_with_compiler] cargo build --release failed. See $BUILD_LOG for details." >&2
-  if [ "$FORCE_FALLBACK" -ne 1 ]; then
-    echo "[run_with_compiler] Aborting. Pass --force-fallback to continue without real compiler." >&2
-    exit 2
-  else
-    echo "[run_with_compiler] --force-fallback enabled; continuing without release binary." >&2
+if ! (cd "$REPO_ROOT" && cargo build --release -p dsl-compiler >"$BUILD_LOG" 2>&1); then
+  echo "[run_with_compiler] cargo build failed. See: $BUILD_LOG" >&2
+  exit 2
+fi
+
+BIN_CANDIDATES=(
+  "$REPO_ROOT/target/release/dsl-compiler"
+  "$REPO_ROOT/dsl/target/release/dsl-compiler"
+)
+
+DSL_BIN=""
+for candidate in "${BIN_CANDIDATES[@]}"; do
+  if [ -x "$candidate" ]; then
+    DSL_BIN="$candidate"
+    break
   fi
+done
+
+if [ -z "$DSL_BIN" ]; then
+  echo "[run_with_compiler] release binary not found after build" >&2
+  exit 3
 fi
+echo "[run_with_compiler] Found release binary: $DSL_BIN"
 
-BIN="$DSL_DIR/target/release/dsl-compiler"
-if [ ! -x "$BIN" ]; then
-  REP_BIN="$REPO_ROOT/target/release/dsl-compiler"
-  if [ -x "$REP_BIN" ]; then
-    BIN="$REP_BIN"
-  fi
-fi
-
-if [ -x "$BIN" ]; then
-  echo "[run_with_compiler] Found release binary: $BIN"
-else
-  echo "[run_with_compiler] Release binary not found after build: $BIN" >&2
-  if [ "$FORCE_FALLBACK" -ne 1 ]; then
-    echo "[run_with_compiler] Aborting because real compiler is required. Use --force-fallback to continue without it." >&2
-    exit 3
-  else
-    echo "[run_with_compiler] --force-fallback enabled; starting server using sample parser as fallback." >&2
-  fi
-fi
-
-if [ ! -d "$WEB_DIR" ]; then
-  echo "Web app directory not found: $WEB_DIR" >&2
-  exit 1
-fi
-
-cd "$WEB_DIR"
-
-# Create a local venv if missing
-if [ ! -d ".venv" ]; then
-  echo "[run_with_compiler] Creating Python virtualenv at $WEB_DIR/.venv"
-  python3 -m venv .venv
+if [ ! -d "$VENV_DIR" ]; then
+  echo "[run_with_compiler] Creating virtual environment: $VENV_DIR"
+  "$PY_BIN" -m venv "$VENV_DIR"
 fi
 
 echo "[run_with_compiler] Activating venv and installing dependencies"
-. .venv/bin/activate
-pip install --upgrade pip
-# Install uvicorn with WebSocket support
-pip install fastapi "uvicorn[standard]"
+# shellcheck disable=SC1090
+source "$VENV_DIR/bin/activate"
+if ! python -m pip install -r "$WEB_ROOT/requirements.txt"; then
+  echo "[run_with_compiler] Dependency install failed (possibly offline). Checking existing environment..." >&2
+  if ! python -c "import fastapi, uvicorn, pydantic" >/dev/null 2>&1; then
+    echo "[run_with_compiler] Required runtime packages are not available in $VENV_DIR" >&2
+    echo "[run_with_compiler] Connect to network or preinstall: fastapi uvicorn pydantic" >&2
+    exit 4
+  fi
+  echo "[run_with_compiler] Using existing installed packages in $VENV_DIR"
+fi
 
-echo "[run_with_compiler] Starting uvicorn (web app) — this replaces the current shell"
-exec .venv/bin/uvicorn main:app --reload --host 127.0.0.1 --port 8000
+cd "$WEB_ROOT"
+export PYTHONPATH="$WEB_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+echo "[run_with_compiler] Starting uvicorn on http://$HOST:$PORT"
+echo "[run_with_compiler] Import target: app.main:app"
+exec "$VENV_DIR/bin/uvicorn" \
+  app.main:app \
+  --reload \
+  --host "$HOST" \
+  --port "$PORT" \
+  --reload-dir "$WEB_APP_DIR"

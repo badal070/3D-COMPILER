@@ -88,6 +88,41 @@ impl LibraryValidator {
             provides_constraints: vec!["spring".to_string(), "damper".to_string()],
             provides_motions: vec!["oscillation".to_string()],
         });
+
+        self.register_library(Library {
+            name: "modeling_core".to_string(),
+            version: "1.0.0".to_string(),
+            provides_components: vec![
+                "transform".to_string(),
+                "geometry".to_string(),
+                "solid".to_string(),
+                "boolean_op".to_string(),
+                "sketch".to_string(),
+                "extrude".to_string(),
+                "revolve".to_string(),
+                "loft".to_string(),
+                "sweep".to_string(),
+                "shell".to_string(),
+                "chamfer".to_string(),
+                "fillet".to_string(),
+                "thread".to_string(),
+                "annotation".to_string(),
+                "material_ref".to_string(),
+            ],
+            provides_constraints: vec![
+                "coincident".to_string(),
+                "parallel".to_string(),
+                "perpendicular".to_string(),
+                "tangent".to_string(),
+                "distance".to_string(),
+                "angle".to_string(),
+                "symmetric".to_string(),
+                "boolean_subtract".to_string(),
+                "boolean_union".to_string(),
+                "boolean_intersect".to_string(),
+            ],
+            provides_motions: vec![],
+        });
     }
 
     fn register_library(&mut self, library: Library) {
@@ -290,6 +325,7 @@ mod tests {
         assert!(validator
             .available_libraries
             .contains_key("advanced_physics"));
+        assert!(validator.available_libraries.contains_key("modeling_core"));
     }
 
     #[test]

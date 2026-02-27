@@ -66,8 +66,11 @@ scene_fields  ::= "name:" STRING
                   "ir_version:" STRING
                   "unit_system:" STRING
                   "domain:" domain_type?
+                  ("precision:" NUMBER)?
+                  ("author:" STRING)?
+                  ("created:" STRING)?
 
-domain_type   ::= "physics" | "chemistry" | "mathematics" | "robotics" | "general"
+domain_type   ::= "physics" | "chemistry" | "mathematics" | "robotics" | "modeling" | "general"
 
 library_imports ::= "library_imports" "{" import_pair* "}"
 import_pair     ::= IDENT ":" STRING

@@ -33,6 +33,9 @@ fn lowers_math_expression_into_ir_payload() {
             ir_version: "0.1.0".to_string(),
             unit_system: "SI".to_string(),
             domain: None,
+            precision: None,
+            author: None,
+            created: None,
             span: s,
         },
         library_imports: AstLibraryImports {
@@ -101,6 +104,9 @@ fn lowers_list_values() {
             ir_version: "0.1.0".to_string(),
             unit_system: "SI".to_string(),
             domain: None,
+            precision: None,
+            author: None,
+            created: None,
             span: s,
         },
         library_imports: AstLibraryImports {

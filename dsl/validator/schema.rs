@@ -35,7 +35,9 @@ pub enum FieldType {
     Number,
     String,
     Identifier,
+    Vector,
     Vector3,
+    List,
     Boolean,
     MathExpression,
 }
@@ -127,6 +129,215 @@ impl SchemaValidator {
             optional_fields: vec![],
         });
 
+        self.register_component_schema(ComponentSchema {
+            name: "solid".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "primitive".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "dimensions".to_string(),
+                    field_type: FieldType::Vector,
+                },
+            ],
+            optional_fields: vec![FieldSchema {
+                name: "fillet_radius".to_string(),
+                field_type: FieldType::Number,
+            }],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "boolean_op".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "operation".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "target".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "tool".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "sketch".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "plane".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "closed".to_string(),
+                    field_type: FieldType::Boolean,
+                },
+                FieldSchema {
+                    name: "points".to_string(),
+                    field_type: FieldType::List,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "extrude".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "sketch_ref".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "depth".to_string(),
+                    field_type: FieldType::Number,
+                },
+            ],
+            optional_fields: vec![FieldSchema {
+                name: "taper_angle".to_string(),
+                field_type: FieldType::Number,
+            }],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "revolve".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "sketch_ref".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "axis".to_string(),
+                    field_type: FieldType::Vector3,
+                },
+                FieldSchema {
+                    name: "angle".to_string(),
+                    field_type: FieldType::Number,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "loft".to_string(),
+            required_fields: vec![FieldSchema {
+                name: "profiles".to_string(),
+                field_type: FieldType::List,
+            }],
+            optional_fields: vec![FieldSchema {
+                name: "guide_curves".to_string(),
+                field_type: FieldType::List,
+            }],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "sweep".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "profile".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "path".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "shell".to_string(),
+            required_fields: vec![FieldSchema {
+                name: "thickness".to_string(),
+                field_type: FieldType::Number,
+            }],
+            optional_fields: vec![FieldSchema {
+                name: "open_faces".to_string(),
+                field_type: FieldType::List,
+            }],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "chamfer".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "edges".to_string(),
+                    field_type: FieldType::List,
+                },
+                FieldSchema {
+                    name: "distance".to_string(),
+                    field_type: FieldType::Number,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "fillet".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "edges".to_string(),
+                    field_type: FieldType::List,
+                },
+                FieldSchema {
+                    name: "radius".to_string(),
+                    field_type: FieldType::Number,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "thread".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "face".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "pitch".to_string(),
+                    field_type: FieldType::Number,
+                },
+                FieldSchema {
+                    name: "handedness".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "annotation".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "type".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "target".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "value".to_string(),
+                    field_type: FieldType::String,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_component_schema(ComponentSchema {
+            name: "material_ref".to_string(),
+            required_fields: vec![FieldSchema {
+                name: "name".to_string(),
+                field_type: FieldType::Identifier,
+            }],
+            optional_fields: vec![],
+        });
+
         // Register default constraint schemas
         self.register_constraint_schema(ConstraintSchema {
             name: "gear_relation".to_string(),
@@ -169,6 +380,120 @@ impl SchemaValidator {
             ],
             optional_fields: vec![],
         });
+
+        for constraint_name in ["coincident", "parallel", "perpendicular", "tangent"] {
+            self.register_constraint_schema(ConstraintSchema {
+                name: constraint_name.to_string(),
+                required_fields: vec![
+                    FieldSchema {
+                        name: "type".to_string(),
+                        field_type: FieldType::Identifier,
+                    },
+                    FieldSchema {
+                        name: "entity_a".to_string(),
+                        field_type: FieldType::Identifier,
+                    },
+                    FieldSchema {
+                        name: "entity_b".to_string(),
+                        field_type: FieldType::Identifier,
+                    },
+                ],
+                optional_fields: vec![],
+            });
+        }
+
+        self.register_constraint_schema(ConstraintSchema {
+            name: "distance".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "type".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "entity_a".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "entity_b".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "value".to_string(),
+                    field_type: FieldType::Number,
+                },
+            ],
+            optional_fields: vec![FieldSchema {
+                name: "unit".to_string(),
+                field_type: FieldType::Identifier,
+            }],
+        });
+
+        self.register_constraint_schema(ConstraintSchema {
+            name: "angle".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "type".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "entity_a".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "entity_b".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "value".to_string(),
+                    field_type: FieldType::Number,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        self.register_constraint_schema(ConstraintSchema {
+            name: "symmetric".to_string(),
+            required_fields: vec![
+                FieldSchema {
+                    name: "type".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "entity_a".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "entity_b".to_string(),
+                    field_type: FieldType::Identifier,
+                },
+                FieldSchema {
+                    name: "axis".to_string(),
+                    field_type: FieldType::Vector3,
+                },
+            ],
+            optional_fields: vec![],
+        });
+
+        for constraint_name in ["boolean_subtract", "boolean_union", "boolean_intersect"] {
+            self.register_constraint_schema(ConstraintSchema {
+                name: constraint_name.to_string(),
+                required_fields: vec![
+                    FieldSchema {
+                        name: "type".to_string(),
+                        field_type: FieldType::Identifier,
+                    },
+                    FieldSchema {
+                        name: "target".to_string(),
+                        field_type: FieldType::Identifier,
+                    },
+                    FieldSchema {
+                        name: "tool".to_string(),
+                        field_type: FieldType::Identifier,
+                    },
+                ],
+                optional_fields: vec![],
+            });
+        }
 
         // Register default motion schemas
         self.register_motion_schema(MotionSchema {
@@ -252,7 +577,15 @@ impl SchemaValidator {
     fn validate_entities(&mut self, entities: &[AstEntity]) {
         for entity in entities {
             // Validate entity kind
-            let valid_kinds = ["solid", "light", "camera", "particle_system"];
+            let valid_kinds = [
+                "solid",
+                "light",
+                "camera",
+                "particle_system",
+                "sketch",
+                "feature",
+                "annotation",
+            ];
             if !valid_kinds.contains(&entity.kind.as_str()) {
                 self.errors.add(
                     DslError::new(
@@ -470,8 +803,7 @@ impl SchemaValidator {
                 if vec.len() == 3 {
                     FieldType::Vector3
                 } else {
-                    // Invalid vector length, already caught by syntax validator
-                    return;
+                    FieldType::Vector
                 }
             }
             AstValue::Matrix(_, _) => {
@@ -490,19 +822,7 @@ impl SchemaValidator {
                 return;
             }
             AstValue::List(_, _) => {
-                self.errors.add(
-                    DslError::new(
-                        ErrorCode::InvalidFieldType,
-                        "List values are not supported in schema validation".to_string(),
-                        value.span(),
-                        self.file.clone(),
-                    )
-                    .with_help(format!(
-                        "Field '{}' must be of type {:?}",
-                        field_name, expected_type
-                    )),
-                );
-                return;
+                FieldType::List
             }
             AstValue::MathExpression(_, _) => {
                 if matches!(expected_type, FieldType::MathExpression | FieldType::Number) {
@@ -525,7 +845,13 @@ impl SchemaValidator {
             }
         };
 
+        let vector_compatible = matches!(
+            (actual_type.clone(), expected_type.clone()),
+            (FieldType::Vector3, FieldType::Vector) | (FieldType::Vector3, FieldType::List)
+        );
+
         if actual_type != expected_type
+            && !vector_compatible
             && !(actual_type == FieldType::MathExpression && expected_type == FieldType::Number)
         {
             self.errors.add(
