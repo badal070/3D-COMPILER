@@ -2,13 +2,27 @@ export function createGuiTools({
   sceneManager,
   onAddShape,
   onToggleSnap,
+  onToggleVertexSnap,
+  onToggleEdgeSnap,
   onToggleMeasure,
   onToggleDrag,
   onSetTransformMode,
+  onMarkBooleanTarget,
+  onMarkBooleanTool,
+  onApplyBooleanOperation,
+  onClearBooleanOperation,
 } = {}) {
   const snapButton = document.getElementById("toggle-snap");
+  const snapVertexButton = document.getElementById("toggle-snap-vertex");
+  const snapEdgeButton = document.getElementById("toggle-snap-edge");
   const measureButton = document.getElementById("toggle-measure");
   const dragButton = document.getElementById("toggle-drag");
+  const boolSubtractButton = document.getElementById("bool-subtract");
+  const boolUnionButton = document.getElementById("bool-union");
+  const boolIntersectButton = document.getElementById("bool-intersect");
+  const boolClearButton = document.getElementById("bool-clear");
+  const boolSetTargetButton = document.getElementById("bool-set-target");
+  const boolSetToolButton = document.getElementById("bool-set-tool");
   const modeButtons = {
     translate: document.getElementById("mode-translate"),
     rotate: document.getElementById("mode-rotate"),
@@ -17,6 +31,8 @@ export function createGuiTools({
   const shapeButtons = [...document.querySelectorAll("[data-shape]")];
 
   let snapEnabled = true;
+  let vertexSnapEnabled = false;
+  let edgeSnapEnabled = false;
   let measureEnabled = false;
   let dragEnabled = false;
   let transformMode = "translate";
@@ -45,6 +61,18 @@ export function createGuiTools({
     snapButton.textContent = `Snap: ${snapEnabled ? "On" : "Off"}`;
     onToggleSnap?.(snapEnabled);
   });
+  snapVertexButton?.addEventListener("click", () => {
+    vertexSnapEnabled = !vertexSnapEnabled;
+    sceneManager?.setVertexSnapEnabled(vertexSnapEnabled);
+    snapVertexButton.textContent = `Vertex Snap: ${vertexSnapEnabled ? "On" : "Off"}`;
+    onToggleVertexSnap?.(vertexSnapEnabled);
+  });
+  snapEdgeButton?.addEventListener("click", () => {
+    edgeSnapEnabled = !edgeSnapEnabled;
+    sceneManager?.setEdgeSnapEnabled(edgeSnapEnabled);
+    snapEdgeButton.textContent = `Edge Snap: ${edgeSnapEnabled ? "On" : "Off"}`;
+    onToggleEdgeSnap?.(edgeSnapEnabled);
+  });
 
   measureButton?.addEventListener("click", () => {
     measureEnabled = !measureEnabled;
@@ -69,6 +97,12 @@ export function createGuiTools({
       if (shape) onAddShape?.(shape);
     });
   });
+  boolSubtractButton?.addEventListener("click", () => onApplyBooleanOperation?.("subtract"));
+  boolUnionButton?.addEventListener("click", () => onApplyBooleanOperation?.("union"));
+  boolIntersectButton?.addEventListener("click", () => onApplyBooleanOperation?.("intersect"));
+  boolClearButton?.addEventListener("click", () => onClearBooleanOperation?.());
+  boolSetTargetButton?.addEventListener("click", () => onMarkBooleanTarget?.());
+  boolSetToolButton?.addEventListener("click", () => onMarkBooleanTool?.());
 
   window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
@@ -89,10 +123,30 @@ export function createGuiTools({
     if (key === "w") setActiveMode("translate");
     if (key === "e") setActiveMode("rotate");
     if (key === "r") setActiveMode("scale");
+    if (key === "v") {
+      vertexSnapEnabled = !vertexSnapEnabled;
+      sceneManager?.setVertexSnapEnabled(vertexSnapEnabled);
+      if (snapVertexButton) {
+        snapVertexButton.textContent = `Vertex Snap: ${vertexSnapEnabled ? "On" : "Off"}`;
+      }
+      onToggleVertexSnap?.(vertexSnapEnabled);
+    }
+    if (key === "b") {
+      edgeSnapEnabled = !edgeSnapEnabled;
+      sceneManager?.setEdgeSnapEnabled(edgeSnapEnabled);
+      if (snapEdgeButton) {
+        snapEdgeButton.textContent = `Edge Snap: ${edgeSnapEnabled ? "On" : "Off"}`;
+      }
+      onToggleEdgeSnap?.(edgeSnapEnabled);
+    }
   });
 
   setActiveMode(transformMode);
   setDragEnabled(false);
+  sceneManager?.setVertexSnapEnabled(false);
+  sceneManager?.setEdgeSnapEnabled(false);
+  if (snapVertexButton) snapVertexButton.textContent = "Vertex Snap: Off";
+  if (snapEdgeButton) snapEdgeButton.textContent = "Edge Snap: Off";
 }
 
 function buildShape(type) {

@@ -15,6 +15,7 @@ export class SceneManager {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.localClippingEnabled = true;
 
     this.labelRenderer = new CSS2DRenderer();
     this.labelRenderer.domElement.style.position = "absolute";
@@ -70,15 +71,27 @@ export class SceneManager {
     this.dragObjects = [];
     this.annotations = [];
     this.selectedId = null;
+    this.selectedIds = new Set();
     this.csg = null;
+    this.currentPrecision = 1;
+    this.measurementUnit = "units";
     this.snapEnabled = true;
+    this.vertexSnapEnabled = false;
+    this.edgeSnapEnabled = false;
     this.measureMode = false;
     this.dragModeEnabled = false;
     this.measurePoints = [];
+    this.isApplyingSnap = false;
+    this.transformSpace = "local";
+    this.displayMode = "solid";
+    this.sectionState = { enabled: false, axis: "y", offset: 0 };
+    this.sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+    this.objectStateMap = new Map();
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.onSelect = () => {};
+    this.onSelectionChange = () => {};
     this.onTransform = () => {};
 
     this.dragControls = new DragControls(this.dragObjects, this.camera, this.renderer.domElement);
@@ -91,11 +104,12 @@ export class SceneManager {
     });
     this.dragControls.addEventListener("dragstart", (event) => {
       if (!this.dragModeEnabled) return;
+      if (event.object?.userData?.locked) return;
       this.controls.enabled = false;
       this.transformControls.enabled = false;
       this.canvas.style.cursor = "grabbing";
       const id = event.object?.userData?.entityId;
-      if (id) this.selectObject(String(id), true);
+      if (id) this.selectMultiple([String(id)], true, String(id));
     });
     this.dragControls.addEventListener("dragend", (event) => {
       if (!this.dragModeEnabled) return;
@@ -104,9 +118,13 @@ export class SceneManager {
       this.canvas.style.cursor = "grab";
       this.emitTransformForObject(event.object);
     });
+    this.dragControls.addEventListener("drag", (event) => {
+      if (!this.dragModeEnabled) return;
+      this.applySnappingForObject(event.object);
+    });
 
     this.canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
-    this.transformControls.addEventListener("objectChange", () => this.emitTransform());
+    this.transformControls.addEventListener("objectChange", () => this.onTransformObjectChange());
     this.setSnapEnabled(this.snapEnabled);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -124,21 +142,45 @@ export class SceneManager {
     }
   }
 
-  setCallbacks({ onSelect, onTransform } = {}) {
+  setCallbacks({ onSelect, onSelectionChange, onTransform } = {}) {
     if (onSelect) this.onSelect = onSelect;
+    if (onSelectionChange) this.onSelectionChange = onSelectionChange;
     if (onTransform) this.onTransform = onTransform;
   }
 
   setSnapEnabled(enabled) {
     this.snapEnabled = enabled;
-    this.transformControls.setTranslationSnap(enabled ? 0.5 : null);
+    this.transformControls.setTranslationSnap(enabled ? this.currentPrecision : null);
     this.transformControls.setRotationSnap(enabled ? THREE.MathUtils.degToRad(15) : null);
-    this.transformControls.setScaleSnap(enabled ? 0.1 : null);
+    this.transformControls.setScaleSnap(enabled ? this.currentPrecision : null);
+  }
+
+  setVertexSnapEnabled(enabled) {
+    this.vertexSnapEnabled = !!enabled;
+  }
+
+  setEdgeSnapEnabled(enabled) {
+    this.edgeSnapEnabled = !!enabled;
+  }
+
+  setMeasurementUnit(unitLabel) {
+    const normalized = String(unitLabel || "").trim();
+    this.measurementUnit = normalized || "units";
+  }
+
+  setPrecision(precision) {
+    const parsed = Number(precision);
+    this.currentPrecision = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    this.setSnapEnabled(this.snapEnabled);
+    this.updateGrid(this.currentPrecision);
   }
 
   setMeasureMode(enabled) {
     this.measureMode = enabled;
     this.measurePoints = [];
+    if (!enabled) {
+      this.clearMeasurements();
+    }
   }
 
   setTransformMode(mode) {
@@ -147,40 +189,112 @@ export class SceneManager {
     this.transformControls.setMode(nextMode);
   }
 
+  setTransformSpace(space) {
+    const nextSpace = String(space || "").toLowerCase();
+    if (!["local", "world"].includes(nextSpace)) return;
+    this.transformSpace = nextSpace;
+    this.transformControls.setSpace(nextSpace);
+  }
+
+  getTransformSpace() {
+    return this.transformSpace;
+  }
+
   setDragMode(enabled) {
     this.dragModeEnabled = !!enabled;
     this.dragControls.enabled = this.dragModeEnabled;
-    this.controls.enabled = !this.isTransformDragging;
+    this.controls.enabled = !this.dragModeEnabled && !this.isTransformDragging;
+    this.updateSelectionVisuals();
+    this.canvas.style.cursor = this.dragModeEnabled ? "grab" : "default";
+  }
 
-    const selected = this.selectedId ? this.objectMap.get(this.selectedId) : null;
-    if (selected && !this.dragModeEnabled) {
-      this.transformControls.attach(selected);
-      this.transformControls.visible = true;
-    } else {
-      this.transformControls.detach();
-      this.transformControls.visible = false;
+  hasObject(id) {
+    if (id == null) return false;
+    return this.objectMap.has(String(id));
+  }
+
+  hasObjects(ids) {
+    if (!Array.isArray(ids) || !ids.length) return false;
+    return ids.every((id) => this.hasObject(id));
+  }
+
+  getVisibleObjectIds() {
+    return [...this.objectMap.entries()].filter(([, mesh]) => mesh.visible).map(([id]) => id);
+  }
+
+  getSelectionIds() {
+    return [...this.selectedIds];
+  }
+
+  clearSelection(emit = true) {
+    this.selectMultiple([], emit);
+  }
+
+  selectAll(emit = true) {
+    this.selectMultiple([...this.objectMap.keys()], emit);
+  }
+
+  selectMultiple(ids, emit = true, primaryId = null) {
+    const nextIds = Array.isArray(ids) ? ids.map((id) => String(id)) : [];
+    const deduped = [];
+    const seen = new Set();
+    for (const id of nextIds) {
+      if (!this.objectMap.has(id)) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      deduped.push(id);
     }
 
-    this.canvas.style.cursor = this.dragModeEnabled ? "grab" : "default";
+    const targetPrimary =
+      primaryId && seen.has(String(primaryId))
+        ? String(primaryId)
+        : deduped.includes(this.selectedId)
+          ? this.selectedId
+          : deduped[deduped.length - 1] || null;
+
+    this.selectedIds = new Set(deduped);
+    this.selectedId = targetPrimary;
+    this.updateSelectionVisuals();
+
+    if (emit) {
+      const primaryEntity = this.selectedId ? this.objectMap.get(this.selectedId)?.userData?.entity : null;
+      this.onSelect(primaryEntity || null);
+      this.onSelectionChange(
+        deduped.map((id) => this.objectMap.get(id)?.userData?.entity).filter(Boolean),
+      );
+    }
+  }
+
+  setObjectStateMap(stateMap) {
+    this.objectStateMap = stateMap instanceof Map ? new Map(stateMap) : new Map();
+    this.applyObjectStates();
   }
 
   updateScene(ir) {
     const entities = Array.isArray(ir?.entities) ? ir.entities : [];
-    const incoming = new Set(entities.map((entity) => String(entity.id)));
+    const renderableEntities = entities.filter((entity) => isRenderableEntity(entity));
+    const incoming = new Set(renderableEntities.map((entity) => String(entity.id)));
 
     for (const [id, mesh] of this.objectMap.entries()) {
       if (!incoming.has(id)) {
         this.scene.remove(mesh);
         mesh.geometry?.dispose();
+        mesh.userData.baseGeometry?.dispose();
         mesh.material?.dispose();
         this.objectMap.delete(id);
+        this.selectedIds.delete(id);
+        if (this.selectedId === id) this.selectedId = null;
       }
     }
 
-    const precision = Number(ir?.metadata?.precision ?? 1);
-    this.updateGrid(precision > 0 ? precision : 1);
+    const precision = Number(ir?.metadata?.precision ?? this.currentPrecision);
+    this.setPrecision(precision > 0 ? precision : this.currentPrecision);
+    if (ir?.metadata?.unit_system && this.measurementUnit === "units") {
+      const unitSystem = String(ir.metadata.unit_system).toLowerCase();
+      this.measurementUnit = unitSystem === "imperial" ? "in" : "m";
+    }
 
-    for (const entity of entities) {
+    for (const entity of renderableEntities) {
       const id = String(entity.id);
       const transform = getComponent(entity, "transform");
       const geometryComponent = getComponent(entity, "geometry") || getComponent(entity, "solid");
@@ -193,19 +307,26 @@ export class SceneManager {
 
       let mesh = this.objectMap.get(id);
       if (!mesh) {
+        const geometry = createGeometry(primitive, dimensions);
         mesh = new THREE.Mesh(
-          createGeometry(primitive, dimensions),
+          geometry,
           new THREE.MeshStandardMaterial({ color: 0xc47a4e, roughness: 0.48, metalness: 0.06 }),
         );
         mesh.userData.entityId = id;
+        mesh.userData.baseGeometry = geometry.clone();
+        mesh.userData.booleanPreviewActive = false;
         this.scene.add(mesh);
         this.objectMap.set(id, mesh);
       } else {
         const prevSig = mesh.userData.geometrySignature;
         const nextSig = `${primitive}:${dimensions.join(":")}`;
         if (prevSig !== nextSig) {
+          const geometry = createGeometry(primitive, dimensions);
           mesh.geometry.dispose();
-          mesh.geometry = createGeometry(primitive, dimensions);
+          mesh.geometry = geometry;
+          mesh.userData.baseGeometry?.dispose();
+          mesh.userData.baseGeometry = geometry.clone();
+          mesh.userData.booleanPreviewActive = false;
         }
       }
 
@@ -219,48 +340,249 @@ export class SceneManager {
     }
 
     this.updateDragObjects();
+    this.applyObjectStates();
+    this.applyDisplayMode();
+    this.applySectionPlane();
+    this.resetBooleanPreviewGeometry();
     this.applyBooleanConstraints(Array.isArray(ir?.constraints) ? ir.constraints : []);
 
     if (this.selectedId) {
-      this.selectObject(this.selectedId, false);
+      this.selectMultiple([...this.selectedIds], false, this.selectedId);
+    } else if (this.selectedIds.size) {
+      this.selectMultiple([...this.selectedIds], false);
     }
   }
 
-  selectObject(id, emit = true) {
-    for (const [meshId, mesh] of this.objectMap.entries()) {
-      const material = mesh.material;
-      if (material && "emissive" in material) {
-        material.emissive.set(meshId === id ? 0x5e2a13 : 0x000000);
-      }
+  setDisplayMode(mode) {
+    const nextMode = String(mode || "").toLowerCase();
+    if (!["solid", "wireframe", "xray"].includes(nextMode)) return;
+    this.displayMode = nextMode;
+    this.applyDisplayMode();
+  }
+
+  setSectionState({ enabled, axis, offset } = {}) {
+    if (typeof enabled === "boolean") this.sectionState.enabled = enabled;
+    if (["x", "y", "z"].includes(String(axis || "").toLowerCase())) {
+      this.sectionState.axis = String(axis).toLowerCase();
+    }
+    if (Number.isFinite(Number(offset))) {
+      this.sectionState.offset = Number(offset);
+    }
+    this.applySectionPlane();
+  }
+
+  getSectionState() {
+    return { ...this.sectionState };
+  }
+
+  focusSelection(ids) {
+    const targets = Array.isArray(ids) ? ids.map((id) => this.objectMap.get(String(id))).filter(Boolean) : [];
+    this.frameObjects(targets);
+  }
+
+  frameAll() {
+    this.frameObjects([...this.objectMap.values()]);
+  }
+
+  frameSelected(ids = null) {
+    const selectedIds = Array.isArray(ids) && ids.length ? ids : [...this.selectedIds];
+    const targets = selectedIds.map((id) => this.objectMap.get(String(id))).filter(Boolean);
+    this.frameObjects(targets);
+  }
+
+  setCameraPreset(preset, ids = null) {
+    const key = String(preset || "").toLowerCase();
+    const selectedIds = Array.isArray(ids) && ids.length ? ids : [...this.selectedIds];
+    const targets =
+      key === "all"
+        ? [...this.objectMap.values()]
+        : selectedIds.length
+          ? selectedIds.map((id) => this.objectMap.get(String(id))).filter(Boolean)
+          : [...this.objectMap.values()];
+    const box = this.computeObjectsBounds(targets);
+    if (!box) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length() || 1;
+    const distance = Math.max(size * 1.35, 4);
+
+    const position = new THREE.Vector3();
+    if (key === "front") position.set(center.x, center.y, center.z + distance);
+    else if (key === "top") position.set(center.x, center.y + distance, center.z);
+    else if (key === "right") position.set(center.x + distance, center.y, center.z);
+    else position.set(center.x + distance * 0.9, center.y + distance * 0.8, center.z + distance * 0.9);
+
+    this.controls.target.copy(center);
+    this.camera.position.copy(position);
+    this.controls.update();
+  }
+
+  async exportMeshes(format = "obj", ids = null) {
+    const targetIds = Array.isArray(ids) && ids.length ? ids : [...this.objectMap.keys()];
+    const meshes = targetIds.map((id) => this.objectMap.get(String(id))).filter(Boolean);
+    if (!meshes.length) return null;
+    const group = new THREE.Group();
+    for (const mesh of meshes) {
+      const clone = mesh.clone();
+      clone.geometry = mesh.geometry.clone();
+      group.add(clone);
     }
 
-    const selected = this.objectMap.get(id);
-    this.selectedId = selected ? id : null;
+    const lower = String(format || "").toLowerCase();
+    if (lower === "obj") {
+      const module = await import("https://esm.sh/three@0.160.1/examples/jsm/exporters/OBJExporter.js");
+      const exporter = new module.OBJExporter();
+      return { format: "obj", data: exporter.parse(group), mime: "text/plain" };
+    }
+    if (lower === "stl") {
+      const module = await import("https://esm.sh/three@0.160.1/examples/jsm/exporters/STLExporter.js");
+      const exporter = new module.STLExporter();
+      return { format: "stl", data: exporter.parse(group), mime: "model/stl" };
+    }
+    return null;
+  }
 
-    if (selected) {
-      if (!this.dragModeEnabled) {
-        this.transformControls.attach(selected);
-        this.transformControls.visible = true;
-      } else {
-        this.transformControls.detach();
-        this.transformControls.visible = false;
-      }
-      if (emit) this.onSelect(selected.userData.entity);
+  selectObject(id, emit = true) {
+    if (!id) {
+      this.selectMultiple([], emit);
       return;
     }
-
-    this.transformControls.detach();
-    this.transformControls.visible = false;
-    if (emit) this.onSelect(null);
+    this.selectMultiple([String(id)], emit, String(id));
   }
 
   focusObject(id) {
     const mesh = this.objectMap.get(String(id));
     if (!mesh) return;
-    this.selectObject(String(id), true);
-    const target = mesh.position.clone();
-    this.controls.target.copy(target);
-    this.camera.position.set(target.x + 8, target.y + 7, target.z + 8);
+    this.selectMultiple([String(id)], true, String(id));
+    this.frameObjects([mesh]);
+  }
+
+  updateSelectionVisuals() {
+    for (const [meshId, mesh] of this.objectMap.entries()) {
+      const material = mesh.material;
+      if (material && "emissive" in material) {
+        const active = this.selectedIds.has(meshId);
+        material.emissive.set(active ? 0x5e2a13 : 0x000000);
+      }
+    }
+
+    const primary = this.selectedId ? this.objectMap.get(this.selectedId) : null;
+    const primaryState = this.selectedId ? this.objectStateMap.get(this.selectedId) : null;
+    const isLockedPrimary = !!primaryState?.locked;
+    if (primary && !this.dragModeEnabled && !isLockedPrimary) {
+      this.transformControls.attach(primary);
+      this.transformControls.visible = true;
+      this.transformControls.enabled = true;
+    } else {
+      this.transformControls.detach();
+      this.transformControls.visible = false;
+      this.transformControls.enabled = !isLockedPrimary;
+    }
+  }
+
+  applyObjectStates() {
+    let isolatedIds = null;
+    for (const [id, state] of this.objectStateMap.entries()) {
+      if (state?.isolate) {
+        if (!isolatedIds) isolatedIds = new Set();
+        isolatedIds.add(String(id));
+      }
+    }
+
+    for (const [id, mesh] of this.objectMap.entries()) {
+      const state = this.objectStateMap.get(id) || {};
+      const hidden = !!state.hidden;
+      const locked = !!state.locked;
+      const isolatedOut = isolatedIds ? !isolatedIds.has(id) : false;
+      const visible = !hidden && !isolatedOut;
+      mesh.visible = visible;
+      mesh.userData.locked = locked;
+
+      const material = mesh.material;
+      if (material && typeof material === "object") {
+        material.depthWrite = !locked;
+        if ("emissive" in material && locked) {
+          material.emissive.setHex(0x1c3f6e);
+        }
+      }
+
+      if (!visible && this.selectedIds.has(id)) {
+        this.selectedIds.delete(id);
+        if (this.selectedId === id) this.selectedId = null;
+      }
+    }
+    this.updateSelectionVisuals();
+  }
+
+  applyDisplayMode() {
+    for (const mesh of this.objectMap.values()) {
+      const material = mesh.material;
+      if (!material || typeof material !== "object") continue;
+      material.wireframe = this.displayMode === "wireframe";
+      if (this.displayMode === "xray") {
+        material.transparent = true;
+        material.opacity = 0.28;
+        material.depthWrite = false;
+      } else {
+        material.transparent = false;
+        material.opacity = 1;
+        material.depthWrite = true;
+      }
+      material.needsUpdate = true;
+    }
+    this.updateSelectionVisuals();
+  }
+
+  applySectionPlane() {
+    const axis = this.sectionState.axis || "y";
+    const offset = Number(this.sectionState.offset || 0);
+    const normal =
+      axis === "x"
+        ? new THREE.Vector3(-1, 0, 0)
+        : axis === "z"
+          ? new THREE.Vector3(0, 0, -1)
+          : new THREE.Vector3(0, -1, 0);
+    this.sectionPlane.set(normal, offset);
+
+    const clipping = this.sectionState.enabled ? [this.sectionPlane] : [];
+    for (const mesh of this.objectMap.values()) {
+      const material = mesh.material;
+      if (!material || typeof material !== "object") continue;
+      material.clippingPlanes = clipping;
+      material.needsUpdate = true;
+    }
+  }
+
+  computeObjectsBounds(objects) {
+    if (!Array.isArray(objects) || !objects.length) return null;
+    const box = new THREE.Box3();
+    let hasAny = false;
+    for (const object of objects) {
+      if (!object || !object.visible) continue;
+      const itemBox = new THREE.Box3().setFromObject(object);
+      if (itemBox.isEmpty()) continue;
+      if (!hasAny) {
+        box.copy(itemBox);
+        hasAny = true;
+      } else {
+        box.union(itemBox);
+      }
+    }
+    return hasAny ? box : null;
+  }
+
+  frameObjects(objects) {
+    const box = this.computeObjectsBounds(objects);
+    if (!box) return;
+    const center = box.getCenter(new THREE.Vector3());
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const radius = Math.max(sphere.radius, 0.5);
+    const distance = radius * 2.3;
+    const direction = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).normalize();
+    if (!Number.isFinite(direction.lengthSq()) || direction.lengthSq() <= 1e-8) {
+      direction.set(1, 0.8, 1).normalize();
+    }
+    this.controls.target.copy(center);
+    this.camera.position.copy(center.clone().add(direction.multiplyScalar(distance)));
     this.controls.update();
   }
 
@@ -268,8 +590,18 @@ export class SceneManager {
     this.emitTransformForObject(this.transformControls.object);
   }
 
+  onTransformObjectChange() {
+    if (this.isApplyingSnap) return;
+    const object = this.transformControls.object;
+    if (!object) return;
+    if (object.userData?.locked) return;
+    this.applySnappingForObject(object);
+    this.emitTransformForObject(object);
+  }
+
   emitTransformForObject(object) {
     if (!object?.userData?.entity) return;
+    if (object.userData?.locked) return;
     const entity = structuredClone(object.userData.entity);
     const transform = getComponent(entity, "transform");
     if (!transform.properties) transform.properties = {};
@@ -292,20 +624,34 @@ export class SceneManager {
 
     const hit = intersects[0];
     const id = hit.object.userData.entityId;
+    const locked = !!hit.object.userData?.locked;
 
     if (this.measureMode) {
       this.measurePoints.push(hit.point.clone());
       if (this.measurePoints.length === 2) {
-        this.addMeasurement(this.measurePoints[0], this.measurePoints[1]);
+        this.addDistanceMeasurement(this.measurePoints[0], this.measurePoints[1]);
+      } else if (this.measurePoints.length === 3) {
+        this.addAngleMeasurement(this.measurePoints[0], this.measurePoints[1], this.measurePoints[2]);
         this.measurePoints = [];
       }
       return;
     }
 
-    if (id) this.selectObject(String(id), true);
+    if (!id || locked) return;
+
+    const nextId = String(id);
+    if (event.shiftKey) {
+      const next = new Set(this.selectedIds);
+      if (next.has(nextId)) next.delete(nextId);
+      else next.add(nextId);
+      this.selectMultiple([...next], true, nextId);
+      return;
+    }
+
+    this.selectMultiple([nextId], true, nextId);
   }
 
-  addMeasurement(start, end) {
+  addDistanceMeasurement(start, end) {
     const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
     const line = new THREE.Line(
       geometry,
@@ -323,13 +669,60 @@ export class SceneManager {
     label.style.color = "#20593b";
     label.style.fontFamily = "IBM Plex Mono, monospace";
     label.style.fontSize = "11px";
-    label.textContent = `${distance.toFixed(3)}`;
+    label.textContent = `${distance.toFixed(3)} ${this.measurementUnit}`;
 
     const tag = new CSS2DObject(label);
     tag.position.copy(center);
     this.scene.add(tag);
 
     this.annotations.push(line, tag);
+  }
+
+  addAngleMeasurement(a, b, c) {
+    const rayOne = a.clone().sub(b);
+    const rayTwo = c.clone().sub(b);
+    const oneLength = rayOne.length();
+    const twoLength = rayTwo.length();
+    if (oneLength <= 1e-8 || twoLength <= 1e-8) return;
+
+    const normalizedOne = rayOne.normalize();
+    const normalizedTwo = rayTwo.normalize();
+    const cosine = THREE.MathUtils.clamp(normalizedOne.dot(normalizedTwo), -1, 1);
+    const angle = THREE.MathUtils.radToDeg(Math.acos(cosine));
+
+    const guideOne = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([b, a]),
+      new THREE.LineDashedMaterial({ color: 0x445f9f, dashSize: 0.2, gapSize: 0.12 }),
+    );
+    guideOne.computeLineDistances();
+    const guideTwo = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([b, c]),
+      new THREE.LineDashedMaterial({ color: 0x445f9f, dashSize: 0.2, gapSize: 0.12 }),
+    );
+    guideTwo.computeLineDistances();
+    this.scene.add(guideOne);
+    this.scene.add(guideTwo);
+
+    const label = document.createElement("div");
+    label.style.padding = "2px 6px";
+    label.style.border = "1px solid rgba(68,95,159,0.35)";
+    label.style.borderRadius = "999px";
+    label.style.background = "rgba(255,255,255,0.9)";
+    label.style.color = "#304679";
+    label.style.fontFamily = "IBM Plex Mono, monospace";
+    label.style.fontSize = "11px";
+    label.textContent = `${angle.toFixed(2)}°`;
+
+    const anchor = b
+      .clone()
+      .add(normalizedOne)
+      .add(normalizedTwo)
+      .multiplyScalar(0.5);
+    const tag = new CSS2DObject(label);
+    tag.position.copy(anchor);
+    this.scene.add(tag);
+
+    this.annotations.push(guideOne, guideTwo, tag);
   }
 
   setDimensionLabel(mesh, dims) {
@@ -365,6 +758,107 @@ export class SceneManager {
   updateDragObjects() {
     this.dragObjects.length = 0;
     this.dragObjects.push(...this.objectMap.values());
+  }
+
+  resetBooleanPreviewGeometry() {
+    for (const mesh of this.objectMap.values()) {
+      if (!mesh.userData.booleanPreviewActive) continue;
+      const baseGeometry = mesh.userData.baseGeometry;
+      if (!baseGeometry) {
+        mesh.userData.booleanPreviewActive = false;
+        continue;
+      }
+      mesh.geometry?.dispose();
+      mesh.geometry = baseGeometry.clone();
+      mesh.userData.booleanPreviewActive = false;
+    }
+  }
+
+  applySnappingForObject(object) {
+    if (!object) return;
+    const transformMode = this.transformControls.getMode?.() || "translate";
+    const supportsPositionSnap = this.dragModeEnabled || transformMode === "translate";
+    if (!supportsPositionSnap) return;
+
+    this.isApplyingSnap = true;
+    try {
+      if (this.snapEnabled) {
+        object.position.set(
+          snapScalar(object.position.x, this.currentPrecision),
+          snapScalar(object.position.y, this.currentPrecision),
+          snapScalar(object.position.z, this.currentPrecision),
+        );
+      }
+      this.applyFeatureSnap(object);
+    } finally {
+      this.isApplyingSnap = false;
+    }
+  }
+
+  applyFeatureSnap(object) {
+    if (!this.vertexSnapEnabled && !this.edgeSnapEnabled) return;
+    const snapRadius = Math.max(this.currentPrecision * 4, 0.2);
+    let nearest = null;
+
+    if (this.vertexSnapEnabled) {
+      nearest = this.findNearestVertexPoint(object, snapRadius);
+    }
+    if (this.edgeSnapEnabled) {
+      const edgeNearest = this.findNearestEdgePoint(object, snapRadius);
+      if (!nearest || (edgeNearest && edgeNearest.distanceSq < nearest.distanceSq)) {
+        nearest = edgeNearest;
+      }
+    }
+    if (!nearest) return;
+    object.position.copy(nearest.point);
+  }
+
+  findNearestVertexPoint(movingObject, radius) {
+    const radiusSq = radius * radius;
+    const origin = movingObject.position.clone();
+    let nearest = null;
+    const scratch = new THREE.Vector3();
+
+    for (const mesh of this.objectMap.values()) {
+      if (mesh === movingObject) continue;
+      const positions = mesh.geometry?.attributes?.position;
+      if (!positions) continue;
+      mesh.updateWorldMatrix(true, false);
+      const step = Math.max(1, Math.floor(positions.count / 300));
+      for (let i = 0; i < positions.count; i += step) {
+        scratch.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+        const distanceSq = scratch.distanceToSquared(origin);
+        if (distanceSq > radiusSq) continue;
+        if (!nearest || distanceSq < nearest.distanceSq) {
+          nearest = { point: scratch.clone(), distanceSq };
+        }
+      }
+    }
+    return nearest;
+  }
+
+  findNearestEdgePoint(movingObject, radius) {
+    const radiusSq = radius * radius;
+    const origin = movingObject.position.clone();
+    let nearest = null;
+    const box = new THREE.Box3();
+    const closest = new THREE.Vector3();
+
+    for (const mesh of this.objectMap.values()) {
+      if (mesh === movingObject) continue;
+      box.setFromObject(mesh);
+      if (box.isEmpty()) continue;
+      const corners = boxCorners(box);
+      for (const [start, end] of boxEdges(corners)) {
+        closest.copy(closestPointOnSegment(origin, start, end));
+        const distanceSq = closest.distanceToSquared(origin);
+        if (distanceSq > radiusSq) continue;
+        if (!nearest || distanceSq < nearest.distanceSq) {
+          nearest = { point: closest.clone(), distanceSq };
+        }
+      }
+    }
+    return nearest;
   }
 
   applyBooleanConstraints(constraints) {
@@ -407,6 +901,7 @@ export class SceneManager {
         if (result?.geometry) {
           targetMesh.geometry.dispose();
           targetMesh.geometry = result.geometry;
+          targetMesh.userData.booleanPreviewActive = true;
         }
       } catch {
         // Keep base geometry if CSG preview fails.
@@ -415,12 +910,13 @@ export class SceneManager {
   }
 
   updateGrid(precision) {
-    const spacing = Math.max(precision, 0.01);
-    const divisions = Math.min(500, Math.max(20, Math.round(20 / spacing)));
+    const spacing = Math.max(Number(precision) || 1, 1e-6);
+    const divisions = 200;
+    const size = spacing * divisions;
     this.scene.remove(this.grid);
     this.grid.geometry.dispose();
     this.grid.material.dispose();
-    this.grid = new THREE.GridHelper(200, divisions, 0x9f9581, 0xc6bca8);
+    this.grid = new THREE.GridHelper(size, divisions, 0x9f9581, 0xc6bca8);
     this.scene.add(this.grid);
   }
 
@@ -482,6 +978,19 @@ function getProperty(component, key, fallback = null) {
   return unwrapIrValue(props[key]);
 }
 
+function isRenderableEntity(entity) {
+  const geometry = getComponent(entity, "geometry");
+  const solid = getComponent(entity, "solid");
+  return hasRenderablePrimitive(geometry) || hasRenderablePrimitive(solid);
+}
+
+function hasRenderablePrimitive(component) {
+  const primitive = getProperty(component, "primitive", null);
+  if (primitive == null) return false;
+  const normalized = String(primitive).trim().toLowerCase();
+  return normalized.length > 0;
+}
+
 function unwrapIrValue(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const keys = Object.keys(value);
@@ -504,4 +1013,49 @@ function toVector3(value) {
     return [value, value, value];
   }
   return [0, 0, 0];
+}
+
+function snapScalar(value, precision) {
+  if (!Number.isFinite(value) || !Number.isFinite(precision) || precision <= 0) return value;
+  return Math.round(value / precision) * precision;
+}
+
+function boxCorners(box) {
+  const { min, max } = box;
+  return [
+    new THREE.Vector3(min.x, min.y, min.z),
+    new THREE.Vector3(max.x, min.y, min.z),
+    new THREE.Vector3(min.x, max.y, min.z),
+    new THREE.Vector3(max.x, max.y, min.z),
+    new THREE.Vector3(min.x, min.y, max.z),
+    new THREE.Vector3(max.x, min.y, max.z),
+    new THREE.Vector3(min.x, max.y, max.z),
+    new THREE.Vector3(max.x, max.y, max.z),
+  ];
+}
+
+function boxEdges(corners) {
+  return [
+    [corners[0], corners[1]],
+    [corners[2], corners[3]],
+    [corners[4], corners[5]],
+    [corners[6], corners[7]],
+    [corners[0], corners[2]],
+    [corners[1], corners[3]],
+    [corners[4], corners[6]],
+    [corners[5], corners[7]],
+    [corners[0], corners[4]],
+    [corners[1], corners[5]],
+    [corners[2], corners[6]],
+    [corners[3], corners[7]],
+  ];
+}
+
+function closestPointOnSegment(point, start, end) {
+  const segment = new THREE.Vector3().subVectors(end, start);
+  const pointOffset = new THREE.Vector3().subVectors(point, start);
+  const lengthSq = segment.lengthSq();
+  if (lengthSq <= 1e-12) return start.clone();
+  const t = THREE.MathUtils.clamp(pointOffset.dot(segment) / lengthSq, 0, 1);
+  return start.clone().add(segment.multiplyScalar(t));
 }

@@ -37,6 +37,16 @@ impl SnapshotBuilder {
                 color_index: entry.color_index,
             })
             .collect::<Vec<_>>();
+        let focus_ids = active_highlight_token
+            .as_ref()
+            .map(|token| {
+                highlight_schedule
+                    .iter()
+                    .filter(|entry| &entry.highlight_token == token)
+                    .map(|entry| entry.entity_id_hash)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let annotations = state
             .annotations
             .iter()
@@ -62,7 +72,7 @@ impl SnapshotBuilder {
             math_values: self.extract_math_values(state),
             math_preview: None,
             math_renderables: self.build_math_renderables(state),
-            focus_ids: vec![], // TODO: implement focus tracking
+            focus_ids,
             active_highlight_token,
             highlight_schedule,
             annotations,

@@ -52,6 +52,7 @@ MODEL_DESCRIPTION_SCHEMA: dict[str, Any] = {
                         "maxItems": 3,
                     },
                     "material": {"type": "string"},
+                    "suppressed": {"type": "boolean"},
                     "operation": {
                         "type": "string",
                         "enum": ["subtract", "union", "intersect"],
@@ -114,6 +115,8 @@ def description_to_dsl(description: dict[str, Any]) -> TranslationResult:
         return final
 
     for shape in description.get("shapes", []):
+        if bool(shape.get("suppressed")):
+            continue
         original = str(shape.get("id", "shape"))
         id_map[original] = canonical_id(original)
 
@@ -145,7 +148,7 @@ def description_to_dsl(description: dict[str, Any]) -> TranslationResult:
         {
             normalize_identifier(str(shape.get("material")))
             for shape in description.get("shapes", [])
-            if shape.get("material")
+            if shape.get("material") and not bool(shape.get("suppressed"))
         }
     )
     if material_names:
@@ -163,8 +166,12 @@ def description_to_dsl(description: dict[str, Any]) -> TranslationResult:
         lines.extend(["}", ""])
 
     for shape in description.get("shapes", []):
+        if bool(shape.get("suppressed")):
+            continue
         original_id = str(shape.get("id", "shape"))
-        shape_id = id_map[original_id]
+        shape_id = id_map.get(original_id)
+        if not shape_id:
+            continue
         shape_type = str(shape.get("type", "box")).lower()
         primitive, dimensions = normalize_geometry(shape_type, shape.get("dimensions", {}))
         position = normalize_vector3(shape.get("position", [0, 0, 0]))
@@ -199,13 +206,15 @@ def description_to_dsl(description: dict[str, Any]) -> TranslationResult:
         lines.append("")
 
     for shape in description.get("shapes", []):
+        if bool(shape.get("suppressed")):
+            continue
         operation = str(shape.get("operation", "")).lower().strip()
         if operation not in {"subtract", "union", "intersect"}:
             continue
 
         tool_original = str(shape.get("id", "shape"))
         target_original = str(shape.get("target", "")).strip()
-        if not target_original or target_original not in id_map:
+        if not target_original or target_original not in id_map or tool_original not in id_map:
             continue
 
         constraint_type = {
@@ -222,6 +231,8 @@ def description_to_dsl(description: dict[str, Any]) -> TranslationResult:
         lines.append("")
 
     for index, feature in enumerate(description.get("features", []), start=1):
+        if bool(feature.get("suppressed")):
+            continue
         feature_type = str(feature.get("type", "")).lower().strip()
         feature_id = normalize_identifier(str(feature.get("id") or f"feature_{index}"))
         if feature_type not in {"fillet", "chamfer", "thread", "shell", "annotation"}:
@@ -249,6 +260,8 @@ def description_to_dsl(description: dict[str, Any]) -> TranslationResult:
         lines.append("")
 
     for index, constraint in enumerate(description.get("constraints", []), start=1):
+        if bool(constraint.get("suppressed")):
+            continue
         constraint_type = str(constraint.get("type", "")).lower().strip()
         if not constraint_type:
             continue
